@@ -1,96 +1,106 @@
 mod config;
-use config::{Config, Rule, RuleMethod};
+use config::Config;
 
-mod blocker;
+mod peer_blocker;
+use peer_blocker::{BlockOption, BlockRule, Executor, PeerBlocker};
 
-use log::{error, info};
-use serde_json::from_str;
-use std::collections::HashSet;
-use std::fs::{self, OpenOptions};
-use std::io::{self, BufRead, Write};
-use std::time::Duration;
+use clap::Parser;
+use log::{debug, error, LevelFilter};
+use simple_logger::SimpleLogger;
 use tokio::time::sleep;
 
-// 从配置文件加载 Config
-fn load_config(filename: &str) -> Result<Config, Box<dyn std::error::Error>> {
-    let config_data = fs::read_to_string(filename)?;
-    let config: Config = from_str(&config_data)?;
-    Ok(config)
-}
+use std::collections::HashSet;
+use std::net::IpAddr;
+use std::rc::Rc;
+use std::str::FromStr;
+use std::time::Duration;
 
-// 读取 `xt_recent` 表中的所有 IP 到 HashSet 中，避免重复读取文件
-fn load_recent_ips(table: &str) -> io::Result<HashSet<String>> {
-    let path = format!("/proc/net/xt_recent/{}", table);
-    let file = fs::File::open(&path)?;
-    let reader = io::BufReader::new(file);
-
-    let mut ips = HashSet::new();
-    reader.lines().try_for_each(|line| {
-        let line = line?;
-        if let Some(ip) = line.split_whitespace().next() {
-            ips.insert(ip.to_string());
-        }
-        io::Result::Ok(())
-    })?;
-
-    Ok(ips)
-}
-
-// 批量写入 IP 地址到 `xt_recent` 表，避免重复写入和频繁文件操作
-fn write_iptables_recent(ips: HashSet<String>, table: &str) {
-    let recent_ips = match load_recent_ips(table) {
-        Ok(ips) => ips,
-        Err(e) => {
-            error!("Failed to load recent IPs from {}: {:?}", table, e);
-            return;
-        }
-    };
-    let path = format!("/proc/net/xt_recent/{}", table);
-    match OpenOptions::new().write(true).open(&path) {
-        Ok(mut file) => {
-            for ip in ips {
-                if !recent_ips.contains(&ip) {
-                    if let Err(e) = writeln!(file, "+{}", ip) {
-                        error!("Failed to add {} to {}: {:?}", ip, table, e);
-                    } else {
-                        info!("Successfully added {} to {}.", ip, table);
-                    }
-                } else {
-                    info!("IP: {} already in {}.", ip, table);
-                }
-            }
-        }
-        Err(e) => error!("Failed to open file {}: {:?}", path, e),
-    }
+#[derive(Parser, Debug)]
+#[command(version, about)]
+struct Cli {
+    /// path to the configuration file
+    #[arg(short, long, default_value = "config.toml")]
+    config: String,
 }
 
 #[tokio::main]
 async fn main() {
-    // 初始化日志记录
-    //env_logger::init();
+    let cli = Cli::parse();
 
-    // 加载配置文件
-    let config = load_config("config.json").expect("Failed to load configuration.");
-    let scan_interval = Duration::from_secs(config.scan_interval);
-    // let exception_interval = Duration::from_secs(config.exception_interval);
+    // Load configuration
+    let config = Rc::new(Config::load_config(&cli.config).expect("Failed to load configuration."));
 
-    info!("Loaded config: {:?}", config);
+    // Initialize logger
+    SimpleLogger::new()
+        .with_level(LevelFilter::from_str(&config.log_level).unwrap())
+        .init()
+        .unwrap();
+    debug!("Loaded config: {:?}", Rc::clone(&config));
 
-    loop {
-        info!("Aria2 RPC URL: {}", config.aria2_rpc_url);
+    let interval = Duration::from_secs(config.interval as u64);
+    let exception_interval = Duration::from_secs(config.exception_interval as u64);
 
-        // 示例：检查一个 peer_id 是否在禁止列表中
-        let peer_id = "-xm123456";
-        if is_banned(peer_id, &config.block_peer_id_rules) {
-            info!("Peer ID {} is banned", peer_id);
+    // Initialize PeerBlocker
+    let block_rule = BlockRule::builder()
+        .max_rewind_pieces(config.max_rewind_pieces)
+        .max_rewind_percent(config.max_rewind_percent)
+        .max_difference(config.max_difference)
+        .peer_id_block_rules(config.peer_id_rules.clone())
+        .build();
+    let block_option = BlockOption::builder()
+        .sampling_count(config.sampling_count)
+        .sampling_interval(config.interval)
+        .peer_snapshot_timeout(config.peer_snapshot_timeout)
+        .peer_disconnect_latency(config.peer_disconnect_latency)
+        .build();
+    let blocker = loop {
+        match PeerBlocker::builder()
+            .host(&config.aria2_rpc_host)
+            .port(config.aria2_rpc_port)
+            .secure(config.aria2_rpc_secure)
+            .secret(&config.aria2_rpc_secret)
+            .rule(&block_rule)
+            .option(&block_option)
+            .build()
+            .await
+        {
+            Ok(blocker) => break blocker,
+            Err(e) => {
+                error!("Failed to initialize PeerBlocker: {:?}", e);
+                sleep(exception_interval).await;
+            }
         }
+    };
 
-        // 示例：更新 xt_recent 表中的 IP
-        let ipv4: HashSet<String> = vec!["192.168.1.1".to_string()].into_iter().collect();
-        let ipv6: HashSet<String> = vec!["2001:db8::1".to_string()].into_iter().collect();
-        write_iptables_recent(ipv4, "BTBANNED");
-        write_iptables_recent(ipv6, "BTBANNEDv6");
+    // Initialize Executor
+    let mut executor_v4 = Executor::new(&config.ipset_v4, config.block_duration);
+    let mut executor_v6 = Executor::new(&config.ipset_v6, config.block_duration);
 
-        sleep(scan_interval).await;
+    // Get blocked peers and write to ipset
+    loop {
+        let peers = loop {
+            match blocker.get_blocked_peers().await {
+                Ok(peers) => break peers,
+                Err(e) => {
+                    error!("Failed to get blocked peers: {:?}", e);
+                    sleep(exception_interval).await;
+                }
+            }
+        };
+        debug!("Blocked peers: {:?}", peers);
+
+        // Split ipv4 and ipv6 peers
+        let (ipv4, ipv6): (HashSet<IpAddr>, HashSet<IpAddr>) =
+            peers.into_iter().partition(|ip| ip.is_ipv4());
+
+        // Update ipset
+        executor_v4
+            .update(&ipv4)
+            .unwrap_or_else(|_| error!("Failed to update ipset [{}]!", config.ipset_v4));
+        executor_v6
+            .update(&ipv6)
+            .unwrap_or_else(|_| error!("Failed to update ipset [{}]!", config.ipset_v6));
+
+        sleep(interval).await
     }
 }

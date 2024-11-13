@@ -1,0 +1,27 @@
+log_level = "debug"
+
+aria2_rpc_host = "192.168.128.250"
+aria2_rpc_port = 46800
+
+peer_id_rules = [
+    { method = "STARTS_WITH", content = "-xl" },
+    { method = "STARTS_WITH", content = "-hp" },
+    { method = "STARTS_WITH", content = "-xm" },
+    { method = "STARTS_WITH", content = "-dt" },
+    { method = "STARTS_WITH", content = "-gt0002" },
+    { method = "STARTS_WITH", content = "-gt0003" },
+    { method = "STARTS_WITH", content = "-sd" },
+    { method = "STARTS_WITH", content = "-xf" },
+    { method = "STARTS_WITH", content = "-qd" },
+    { method = "STARTS_WITH", content = "-bn" },
+    { method = "STARTS_WITH", content = "-dl" },
+    { method = "STARTS_WITH", content = "-ts" },
+    { method = "STARTS_WITH", content = "-fg" },
+    { method = "STARTS_WITH", content = "-tt" },
+    { method = "STARTS_WITH", content = "-nx" },
+    { method = "CONTAINS", content = "-rn0.0.0" },
+    { method = "CONTAINS", content = "cacao" },
+]
+
+ipset_v4 = "blockIP"
+ipset_v6 = "blockIPv6"

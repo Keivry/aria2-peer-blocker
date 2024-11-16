@@ -6,11 +6,10 @@ use peer_blocker::{BlockOption, BlockRule, Executor, PeerBlocker};
 
 use chrono::Local;
 use clap::Parser;
-use env_logger::Builder;
 use log::{debug, error, LevelFilter};
 use tokio::time::sleep;
 
-use std::{collections::HashSet, io::Write, net::IpAddr, rc::Rc, str::FromStr, time::Duration};
+use std::{collections::HashSet, net::IpAddr, rc::Rc, str::FromStr, time::Duration};
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -28,17 +27,19 @@ async fn main() {
     let config = Rc::new(Config::load_config(&cli.config).expect("Failed to load configuration."));
 
     // Initialize logger
-    Builder::new()
+    env_logger::Builder::new()
         .format(|buf, record| {
+            use std::io::Write;
             writeln!(
                 buf,
-                "{} [{}] {}",
+                "[{}] [{}] {}",
                 Local::now().format("%Y-%m-%d %H:%M:%S"),
                 record.level(),
                 record.args()
             )
         })
         .filter_level(LevelFilter::from_str(&config.log_level).unwrap())
+        .target(env_logger::Target::Stdout)
         .init();
 
     debug!("Loaded config: {:?}", Rc::clone(&config));

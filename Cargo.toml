@@ -1,6 +1,6 @@
 [package]
 name = "aria2-peer-blocker"
-version = "0.1.0"
+version = "0.1.1"
 description = "Aria2 Peer Blocker"
 authors = ["Keivry <keivry@163.com>"]
 edition = "2021"
@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = { version = "1.0.93", default-features = false }
 aria2-ws = "0.5.0"
+chrono = { version = "0.4.38", default-features = false }
 clap = { version = "4.5.21", default-features = false, features = [
     "color",
     "derive",
@@ -15,12 +16,14 @@ clap = { version = "4.5.21", default-features = false, features = [
     "std",
     "usage",
 ] }
+env_logger = { version = "0.11.5", default-features = false, features = [
+    "auto-color",
+] }
 hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
 ipset = "0.8.0"
 log = "0.4.22"
 percent-encoding = { version = "2.3.1", default-features = false }
 serde = { version = "1.0.215", default-features = false, features = ["derive"] }
-simple_logger = "5.0.0"
 tokio = { version = "1.41.1", default-features = false, features = [
     "rt",
     "rt-multi-thread",

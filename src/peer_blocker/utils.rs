@@ -1,8 +1,5 @@
-use std::time::SystemTime;
+use chrono::Local;
 
 pub fn timestamp() -> u64 {
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
+    Local::now().timestamp() as u64
 }

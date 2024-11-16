@@ -4,16 +4,13 @@ use config::Config;
 mod peer_blocker;
 use peer_blocker::{BlockOption, BlockRule, Executor, PeerBlocker};
 
+use chrono::Local;
 use clap::Parser;
+use env_logger::Builder;
 use log::{debug, error, LevelFilter};
-use simple_logger::SimpleLogger;
 use tokio::time::sleep;
 
-use std::collections::HashSet;
-use std::net::IpAddr;
-use std::rc::Rc;
-use std::str::FromStr;
-use std::time::Duration;
+use std::{collections::HashSet, io::Write, net::IpAddr, rc::Rc, str::FromStr, time::Duration};
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -31,10 +28,19 @@ async fn main() {
     let config = Rc::new(Config::load_config(&cli.config).expect("Failed to load configuration."));
 
     // Initialize logger
-    SimpleLogger::new()
-        .with_level(LevelFilter::from_str(&config.log_level).unwrap())
-        .init()
-        .unwrap();
+    Builder::new()
+        .format(|buf, record| {
+            writeln!(
+                buf,
+                "{} [{}] {}",
+                Local::now().format("%Y-%m-%d %H:%M:%S"),
+                record.level(),
+                record.args()
+            )
+        })
+        .filter_level(LevelFilter::from_str(&config.log_level).unwrap())
+        .init();
+
     debug!("Loaded config: {:?}", Rc::clone(&config));
 
     let interval = Duration::from_secs(config.interval as u64);

@@ -48,7 +48,7 @@ impl PeerBlocker {
 
                     let block_status =
                         if let BlockStatus::AlreadyBlocked(s) = self.match_already_blocked(ip) {
-                            info!("BLOCK: [{}] [ALREADY BLOCKED: <{}>]", ip, s);
+                            debug!("BLOCK: [{}] [ALREADY BLOCKED: <{}>]", ip, s);
                             BlockStatus::AlreadyBlocked(s)
                         } else if self.match_empty_peer_id(&peer_id) == BlockStatus::EmptyPeerId {
                             info!("BLOCK: [{}] [EMPTY PEER ID]", ip);

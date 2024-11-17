@@ -8,7 +8,7 @@ use std::rc::Rc;
 #[derive(Debug, Deserialize)]
 pub struct Config {
     /// Logger configuration
-    #[serde(default)]
+    #[serde(default = "default_log_config")]
     pub log: LoggerConfig,
     /// Aria2 RPC configuration
     pub aria2_rpc: RpcConfig,
@@ -16,26 +16,19 @@ pub struct Config {
     pub rules: RuleConfig,
     /// IPSet configuration
     pub ipset: IpsetConfig,
+    #[serde(default = "default_option_config")]
     /// General options
-    #[serde(default)]
     pub option: OptionConfig,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct LoggerConfig {
     /// Log level, default to Info
+    #[serde(default = "default_log_level")]
     pub level: String,
     /// Control whether to add timestamp to log, default to false
+    #[serde(default)]
     pub timestamp: bool,
-}
-
-impl Default for LoggerConfig {
-    fn default() -> Self {
-        LoggerConfig {
-            level: "info".to_owned(),
-            timestamp: false,
-        }
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,30 +63,23 @@ pub struct RuleConfig {
 #[derive(Debug, Deserialize)]
 pub struct OptionConfig {
     /// Sampling count, default to 10
+    #[serde(default = "default_sampling_count")]
     pub sampling_count: u8,
     /// Sampling interval, default to 10
+    #[serde(default = "default_interval")]
     pub interval: u32,
     /// Exception interval, default to 90
+    #[serde(default = "default_exception_interval")]
     pub exception_interval: u32,
     /// Peer disconnect latency, default to 180
+    #[serde(default = "default_peer_disconnect_latency")]
     pub peer_disconnect_latency: u32,
     /// Peer snapshot timeout, default to 300
+    #[serde(default = "default_peer_snapshot_timeout")]
     pub peer_snapshot_timeout: u32,
     /// Block duration, default to 12 hours
+    #[serde(default = "default_block_duration")]
     pub block_duration: u32,
-}
-
-impl Default for OptionConfig {
-    fn default() -> Self {
-        OptionConfig {
-            sampling_count: 10,
-            interval: 10,
-            exception_interval: 90,
-            peer_disconnect_latency: 180,
-            peer_snapshot_timeout: 300,
-            block_duration: 43200,
-        }
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -129,6 +115,29 @@ where
     Ok(Rc::new(rules))
 }
 
+fn default_log_config() -> LoggerConfig {
+    LoggerConfig {
+        level: default_log_level(),
+        timestamp: false,
+    }
+}
+
+fn default_option_config() -> OptionConfig {
+    OptionConfig {
+        sampling_count: default_sampling_count(),
+        interval: default_interval(),
+        exception_interval: default_exception_interval(),
+        peer_disconnect_latency: default_peer_disconnect_latency(),
+        peer_snapshot_timeout: default_peer_snapshot_timeout(),
+        block_duration: default_block_duration(),
+    }
+}
+
+#[inline]
+fn default_log_level() -> String {
+    "info".to_string()
+}
+
 #[inline]
 fn default_max_rewind_pieces() -> u32 {
     5
@@ -142,6 +151,36 @@ fn default_max_rewind_percent() -> f64 {
 #[inline]
 fn default_max_difference() -> f64 {
     0.10
+}
+
+#[inline]
+fn default_block_duration() -> u32 {
+    43200
+}
+
+#[inline]
+fn default_sampling_count() -> u8 {
+    10
+}
+
+#[inline]
+fn default_interval() -> u32 {
+    10
+}
+
+#[inline]
+fn default_exception_interval() -> u32 {
+    90
+}
+
+#[inline]
+fn default_peer_disconnect_latency() -> u32 {
+    180
+}
+
+#[inline]
+fn default_peer_snapshot_timeout() -> u32 {
+    300
 }
 
 #[inline]

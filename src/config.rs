@@ -7,39 +7,60 @@ use std::rc::Rc;
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
-    #[serde(default = "default_log_config")]
+    /// Logger configuration
+    #[serde(default)]
     pub log: LoggerConfig,
+    /// Aria2 RPC configuration
     pub aria2_rpc: RpcConfig,
+    /// Block Rules configuration
     pub rules: RuleConfig,
+    /// IPSet configuration
     pub ipset: IpsetConfig,
-    #[serde(default = "default_option_config")]
+    /// General options
+    #[serde(default)]
     pub option: OptionConfig,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct LoggerConfig {
-    #[serde(default = "default_log_level")]
+    /// Log level, default to Info
     pub level: String,
-    #[serde(default)]
+    /// Control whether to add timestamp to log, default to false
     pub timestamp: bool,
+}
+
+impl Default for LoggerConfig {
+    fn default() -> Self {
+        LoggerConfig {
+            level: "info".to_owned(),
+            timestamp: false,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
 pub struct RpcConfig {
+    /// Aria2 RPC host
     pub host: String,
+    /// Aria2 RPC port
     pub port: u16,
+    /// Aria2 RPC secure flag, default to false
     #[serde(default)]
     pub secure: bool,
+    /// Aria2 RPC secret, None if not used
     #[serde(default)]
     pub secret: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct RuleConfig {
+    /// Maximum rewind pieces, default to 5
     #[serde(default = "default_max_rewind_pieces")]
     pub max_rewind_pieces: u32,
+    /// Maximum rewind percent, default to 5%
     #[serde(default = "default_max_rewind_percent")]
     pub max_rewind_percent: f64,
+    /// Maximum difference between pieces, default to 10%
     #[serde(default = "default_max_difference")]
     pub max_difference: f64,
     #[serde(deserialize_with = "deserialize_peer_id_rules")]
@@ -48,28 +69,52 @@ pub struct RuleConfig {
 
 #[derive(Debug, Deserialize)]
 pub struct OptionConfig {
-    #[serde(default = "default_sampling_count")]
+    /// Sampling count, default to 10
     pub sampling_count: u8,
-    #[serde(default = "default_interval")]
+    /// Sampling interval, default to 10
     pub interval: u32,
-    #[serde(default = "default_exception_interval")]
+    /// Exception interval, default to 90
     pub exception_interval: u32,
-    #[serde(default = "default_peer_disconnect_latency")]
+    /// Peer disconnect latency, default to 180
     pub peer_disconnect_latency: u32,
-    #[serde(default = "default_peer_snapshot_timeout")]
+    /// Peer snapshot timeout, default to 300
     pub peer_snapshot_timeout: u32,
-    #[serde(default = "default_block_duration")]
+    /// Block duration, default to 12 hours
     pub block_duration: u32,
+}
+
+impl Default for OptionConfig {
+    fn default() -> Self {
+        OptionConfig {
+            sampling_count: 10,
+            interval: 10,
+            exception_interval: 90,
+            peer_disconnect_latency: 180,
+            peer_snapshot_timeout: 300,
+            block_duration: 43200,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
 pub struct IpsetConfig {
+    /// Control whether to flush ipset on initialization, default to true
+    #[serde(default = "default_flush")]
+    pub flush: bool,
+    /// IPSet name for IPv4
     pub v4: String,
+    /// Netmask for IPv4, default to 32
+    #[serde(default = "default_netmask_v4")]
+    pub netmask_v4: u8,
+    /// IPSet name for IPv6
     pub v6: String,
+    /// Netmask for IPv6, default to 64
+    #[serde(default = "default_netmask_v6")]
+    pub netmask_v6: u8,
 }
 
 impl Config {
-    pub fn load_config(filename: &str) -> Result<Config> {
+    pub fn load(filename: &str) -> Result<Config> {
         let config_data = std::fs::read_to_string(filename)?;
         let config: Config = toml::from_str(&config_data)?;
         Ok(config)
@@ -82,29 +127,6 @@ where
 {
     let rules = Vec::deserialize(deserializer)?;
     Ok(Rc::new(rules))
-}
-
-fn default_log_config() -> LoggerConfig {
-    LoggerConfig {
-        level: default_log_level(),
-        timestamp: false,
-    }
-}
-
-fn default_option_config() -> OptionConfig {
-    OptionConfig {
-        sampling_count: default_sampling_count(),
-        interval: default_interval(),
-        exception_interval: default_exception_interval(),
-        peer_disconnect_latency: default_peer_disconnect_latency(),
-        peer_snapshot_timeout: default_peer_snapshot_timeout(),
-        block_duration: default_block_duration(),
-    }
-}
-
-#[inline]
-fn default_log_level() -> String {
-    "info".to_string()
 }
 
 #[inline]
@@ -123,31 +145,16 @@ fn default_max_difference() -> f64 {
 }
 
 #[inline]
-fn default_block_duration() -> u32 {
-    43200
+fn default_flush() -> bool {
+    true
 }
 
 #[inline]
-fn default_sampling_count() -> u8 {
-    10
+fn default_netmask_v4() -> u8 {
+    32
 }
 
 #[inline]
-fn default_interval() -> u32 {
-    10
-}
-
-#[inline]
-fn default_exception_interval() -> u32 {
-    90
-}
-
-#[inline]
-fn default_peer_disconnect_latency() -> u32 {
-    180
-}
-
-#[inline]
-fn default_peer_snapshot_timeout() -> u32 {
-    300
+fn default_netmask_v6() -> u8 {
+    64
 }

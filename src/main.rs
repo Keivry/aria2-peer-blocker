@@ -24,7 +24,7 @@ struct Cli {
 async fn main() {
     // Load configuration
     let config =
-        Rc::new(Config::load_config(&Cli::parse().config).expect("Failed to load configuration."));
+        Rc::new(Config::load(&Cli::parse().config).expect("Failed to load configuration."));
     // Initialize logger
     init_logger(
         config.log.timestamp,
@@ -68,8 +68,18 @@ async fn main() {
     };
 
     // Initialize Executor
-    let mut executor_v4 = Executor::new(&config.ipset.v4, config.option.block_duration);
-    let mut executor_v6 = Executor::new(&config.ipset.v6, config.option.block_duration);
+    let mut executor_v4 = Executor::new(
+        &config.ipset.v4,
+        config.ipset.netmask_v4,
+        config.option.block_duration,
+        config.ipset.flush,
+    );
+    let mut executor_v6 = Executor::new(
+        &config.ipset.v6,
+        config.ipset.netmask_v6,
+        config.option.block_duration,
+        config.ipset.flush,
+    );
 
     // Get blocked peers and write to ipset
     loop {

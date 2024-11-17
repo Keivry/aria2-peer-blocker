@@ -1,7 +1,7 @@
-use super::utils::timestamp;
+use super::utils::{timestamp, Cidr};
 
 use anyhow::Result;
-use ipset::{types::HashIp, Session};
+use ipset::{types::HashNet, Session};
 use log::info;
 
 use std::collections::{HashMap, HashSet};
@@ -9,22 +9,26 @@ use std::net::IpAddr;
 
 pub struct Executor {
     pub ipset: String,
-    pub ips: HashMap<IpAddr, u64>,
+    pub netmask: u8,
     pub duration: u32,
-    session: Session<HashIp>,
+    pub ips: HashMap<Cidr, u64>,
+    session: Session<HashNet>,
 }
 
 impl Executor {
-    pub fn new(ipset: &str, duration: u32) -> Self {
-        let mut session = Session::<HashIp>::new(ipset.to_owned());
+    pub fn new(ipset: &str, netmask: u8, duration: u32, flush: bool) -> Self {
+        let mut session = Session::<HashNet>::new(ipset.to_owned());
 
-        // Clear all existing IPs on initialization
-        session.flush().ok();
+        if flush {
+            // Clear all existing IPs on initialization
+            session.flush().ok();
+        }
 
         Executor {
             ipset: ipset.to_owned(),
-            ips: HashMap::new(),
+            netmask,
             duration,
+            ips: HashMap::new(),
             session,
         }
     }
@@ -34,17 +38,18 @@ impl Executor {
 
         // Add new IPs
         ips.iter().try_for_each(|ip| {
-            self.session.add(*ip, &[])?;
-            self.ips.insert(*ip, now);
-            info!("UPDATE IPSET [ADD] [{}] [{}].", self.ipset, ip);
+            let net = Cidr::new(*ip, self.netmask);
+            self.session.add(&net, &[])?;
+            self.ips.insert(net.clone(), now);
+            info!("UPDATE IPSET [ADD] [{}] [{}].", self.ipset, net);
             anyhow::Ok(())
         })?;
 
         // Clean old IPs
-        self.ips.retain(|ip, &mut timestamp| {
+        self.ips.retain(|net, &mut timestamp| {
             if now - timestamp > self.duration as u64 {
-                self.session.del(*ip).ok();
-                info!("UPDATE IPSET [DEL] [{}] [{}].", self.ipset, ip);
+                self.session.del(net).ok();
+                info!("UPDATE IPSET [DEL] [{}] [{}].", self.ipset, net);
                 false
             } else {
                 true

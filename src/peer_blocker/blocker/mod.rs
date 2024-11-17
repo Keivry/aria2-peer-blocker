@@ -1,3 +1,5 @@
+mod _impl_;
+
 use super::{option::BlockOption, rules::BlockRule};
 
 use aria2_ws::Client;

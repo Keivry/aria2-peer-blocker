@@ -1,8 +1,11 @@
-log_level = "debug"
+[log]
+level = "debug"
 
-aria2_rpc_host = "192.168.128.250"
-aria2_rpc_port = 46800
+[aria2_rpc]
+host = "192.168.128.250"
+port = 46800
 
+[rules]
 peer_id_rules = [
     { method = "STARTS_WITH", content = "-xl" },
     { method = "STARTS_WITH", content = "-hp" },
@@ -23,5 +26,6 @@ peer_id_rules = [
     { method = "CONTAINS", content = "cacao" },
 ]
 
-ipset_v4 = "blockIP"
-ipset_v6 = "blockIPv6"
+[ipset]
+v4 = "blockIP"
+v6 = "blockIPv6"

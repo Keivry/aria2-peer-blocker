@@ -16,11 +16,16 @@ pub struct Executor {
 
 impl Executor {
     pub fn new(ipset: &str, duration: u32) -> Self {
+        let mut session = Session::<HashIp>::new(ipset.to_owned());
+
+        // Clear all existing IPs on initialization
+        session.flush().ok();
+
         Executor {
             ipset: ipset.to_owned(),
             ips: HashMap::new(),
             duration,
-            session: Session::<HashIp>::new(ipset.to_owned()),
+            session,
         }
     }
 
@@ -31,7 +36,7 @@ impl Executor {
         ips.iter().try_for_each(|ip| {
             self.session.add(*ip, &[])?;
             self.ips.insert(*ip, now);
-            info!("Added IP [{}] to Ipset [{}].", ip, self.ipset);
+            info!("UPDATE IPSET [ADD] [{}] [{}].", self.ipset, ip);
             anyhow::Ok(())
         })?;
 
@@ -39,7 +44,7 @@ impl Executor {
         self.ips.retain(|ip, &mut timestamp| {
             if now - timestamp > self.duration as u64 {
                 self.session.del(*ip).ok();
-                info!("Removed IP [{}] from Ipset [{}].", ip, self.ipset);
+                info!("UPDATE IPSET [DEL] [{}] [{}].", self.ipset, ip);
                 false
             } else {
                 true

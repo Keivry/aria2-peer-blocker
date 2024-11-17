@@ -1,8 +1,10 @@
 use super::{
-    blocker::{BlockStatus, PeerBlocker, PeerSnapshot},
-    option::BlockOption,
-    rules::{BlockRule, PeerIdRule, PeerIdRuleMethod},
-    utils::timestamp,
+    super::{
+        option::BlockOption,
+        rules::{BlockRule, PeerIdRule, PeerIdRuleMethod},
+        utils::timestamp,
+    },
+    {BlockStatus, PeerBlocker, PeerSnapshot},
 };
 
 use anyhow::Result;

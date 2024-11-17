@@ -6,10 +6,11 @@ use peer_blocker::{BlockOption, BlockRule, Executor, PeerBlocker};
 
 use chrono::Local;
 use clap::Parser;
+use colored::{Color, Colorize};
 use log::{debug, error, LevelFilter};
 use tokio::time::sleep;
 
-use std::{collections::HashSet, net::IpAddr, rc::Rc, str::FromStr, time::Duration};
+use std::{collections::HashSet, io::Write, net::IpAddr, rc::Rc, str::FromStr, time::Duration};
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -21,51 +22,38 @@ struct Cli {
 
 #[tokio::main]
 async fn main() {
-    let cli = Cli::parse();
-
     // Load configuration
-    let config = Rc::new(Config::load_config(&cli.config).expect("Failed to load configuration."));
-
+    let config =
+        Rc::new(Config::load_config(&Cli::parse().config).expect("Failed to load configuration."));
     // Initialize logger
-    env_logger::Builder::new()
-        .format(|buf, record| {
-            use std::io::Write;
-            writeln!(
-                buf,
-                "[{}] [{}] {}",
-                Local::now().format("%Y-%m-%d %H:%M:%S"),
-                record.level(),
-                record.args()
-            )
-        })
-        .filter_level(LevelFilter::from_str(&config.log_level).unwrap())
-        .target(env_logger::Target::Stdout)
-        .init();
+    init_logger(
+        config.log.timestamp,
+        LevelFilter::from_str(&config.log.level).unwrap(),
+    );
+    debug!("LOADED CONFIGURATION: {:?}", Rc::clone(&config));
 
-    debug!("Loaded config: {:?}", Rc::clone(&config));
-
-    let interval = Duration::from_secs(config.interval as u64);
-    let exception_interval = Duration::from_secs(config.exception_interval as u64);
+    let interval = Duration::from_secs(config.option.interval as u64);
+    let exception_interval = Duration::from_secs(config.option.exception_interval as u64);
 
     // Initialize PeerBlocker
     let block_rule = BlockRule::builder()
-        .max_rewind_pieces(config.max_rewind_pieces)
-        .max_rewind_percent(config.max_rewind_percent)
-        .max_difference(config.max_difference)
-        .peer_id_block_rules(config.peer_id_rules.clone())
+        .max_rewind_pieces(config.rules.max_rewind_pieces)
+        .max_rewind_percent(config.rules.max_rewind_percent)
+        .max_difference(config.rules.max_difference)
+        .peer_id_block_rules(config.rules.peer_id_rules.clone())
         .build();
     let block_option = BlockOption::builder()
-        .sampling_count(config.sampling_count)
-        .sampling_interval(config.interval)
-        .peer_snapshot_timeout(config.peer_snapshot_timeout)
-        .peer_disconnect_latency(config.peer_disconnect_latency)
+        .sampling_count(config.option.sampling_count)
+        .sampling_interval(config.option.interval)
+        .peer_snapshot_timeout(config.option.peer_snapshot_timeout)
+        .peer_disconnect_latency(config.option.peer_disconnect_latency)
         .build();
     let blocker = loop {
         match PeerBlocker::builder()
-            .host(&config.aria2_rpc_host)
-            .port(config.aria2_rpc_port)
-            .secure(config.aria2_rpc_secure)
-            .secret(&config.aria2_rpc_secret)
+            .host(&config.aria2_rpc.host)
+            .port(config.aria2_rpc.port)
+            .secure(config.aria2_rpc.secure)
+            .secret(&config.aria2_rpc.secret)
             .rule(&block_rule)
             .option(&block_option)
             .build()
@@ -80,8 +68,8 @@ async fn main() {
     };
 
     // Initialize Executor
-    let mut executor_v4 = Executor::new(&config.ipset_v4, config.block_duration);
-    let mut executor_v6 = Executor::new(&config.ipset_v6, config.block_duration);
+    let mut executor_v4 = Executor::new(&config.ipset.v4, config.option.block_duration);
+    let mut executor_v6 = Executor::new(&config.ipset.v6, config.option.block_duration);
 
     // Get blocked peers and write to ipset
     loop {
@@ -94,7 +82,7 @@ async fn main() {
                 }
             }
         };
-        debug!("Blocked peers: {:?}", peers);
+        debug!("BLOCKED PEERS: {:?}", peers);
 
         // Split ipv4 and ipv6 peers
         let (ipv4, ipv6): (HashSet<IpAddr>, HashSet<IpAddr>) =
@@ -103,11 +91,38 @@ async fn main() {
         // Update ipset
         executor_v4
             .update(&ipv4)
-            .unwrap_or_else(|_| error!("Failed to update ipset [{}]!", config.ipset_v4));
+            .unwrap_or_else(|_| error!("Failed to update ipset [{}]!", config.ipset.v4));
         executor_v6
             .update(&ipv6)
-            .unwrap_or_else(|_| error!("Failed to update ipset [{}]!", config.ipset_v6));
+            .unwrap_or_else(|_| error!("Failed to update ipset [{}]!", config.ipset.v6));
 
         sleep(interval).await
     }
+}
+
+fn init_logger(timestamp: bool, level: LevelFilter) {
+    env_logger::Builder::new()
+        .format(move |buf, record| {
+            let color = match record.level() {
+                log::Level::Error => Color::Red,
+                log::Level::Warn => Color::Yellow,
+                log::Level::Info => Color::Green,
+                log::Level::Debug => Color::Blue,
+                log::Level::Trace => Color::Magenta,
+            };
+            let level = format!("{:5}", record.level()).color(color);
+            if timestamp {
+                writeln!(
+                    buf,
+                    "[{} {}] {}",
+                    Local::now().format("%Y-%m-%d %H:%M:%S"),
+                    level,
+                    record.args()
+                )
+            } else {
+                writeln!(buf, "[{}] {}", level, record.args())
+            }
+        })
+        .filter_module("aria2_peer_blocker", level)
+        .init();
 }

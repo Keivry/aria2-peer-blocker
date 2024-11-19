@@ -197,24 +197,21 @@ impl Blocker {
 
     /// Check if the peer should be blocked based on the download completion to zero upload speed latency
     fn match_completed_latency(&self, ip: IpAddr, peer: &PeerSnapshot) -> BlockStatus {
-        let binding = self.cache.borrow();
-        let (snapshot, _) = binding.peer_snapshots.get(&ip).unwrap();
-        if !snapshot.is_empty() && peer.percentage == 1.0 {
-            let latency = if peer.upload_speed != 0 {
-                snapshot.len() + 1
-            } else {
-                snapshot
-                    .iter()
-                    .enumerate()
-                    .find(|(_, s)| s.upload_speed == 0)
-                    .map(|(i, _)| i)
-                    .unwrap_or(snapshot.len())
-            } as u32
-                * self.option.sampling_interval;
+        if let Some((snapshot, _)) = self.cache.borrow().peer_snapshots.get(&ip) {
+            if peer.percentage == 1.0 && !snapshot.is_empty() {
+                let latency = match peer.upload_speed {
+                    0 => snapshot
+                        .iter()
+                        .position(|s| s.upload_speed == 0)
+                        .unwrap_or(snapshot.len()),
+                    _ => snapshot.len() + 1,
+                } as u32
+                    * self.option.sampling_interval;
 
-            debug!("PEER DETAIL: [{}], COMPLETED LATENCY: [{}]", ip, latency);
-            if latency > self.rule.max_latency_completed_to_zero {
-                return BlockStatus::BlockByCompletedLatency(latency);
+                debug!("PEER DETAIL: [{}], COMPLETED LATENCY: [{}]", ip, latency);
+                if latency > self.rule.max_latency_completed_to_zero {
+                    return BlockStatus::BlockByCompletedLatency(latency);
+                }
             }
         }
         BlockStatus::Unblocked

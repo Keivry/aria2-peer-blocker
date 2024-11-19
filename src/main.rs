@@ -2,7 +2,7 @@ mod config;
 use config::Config;
 
 mod peer_blocker;
-use peer_blocker::{BlockOption, BlockRule, Executor, PeerBlocker};
+use peer_blocker::{BlockOption, BlockRule, Blocker, Executor};
 
 use chrono::Local;
 use clap::Parser;
@@ -50,7 +50,7 @@ async fn main() {
         .peer_disconnect_latency(config.option.peer_disconnect_latency)
         .build();
     let blocker = loop {
-        match PeerBlocker::builder()
+        match Blocker::builder()
             .host(&config.aria2_rpc.host)
             .port(config.aria2_rpc.port)
             .secure(config.aria2_rpc.secure)

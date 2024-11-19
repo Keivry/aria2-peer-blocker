@@ -1,4 +1,5 @@
-mod _impl_;
+mod blocker_impl;
+mod builder;
 
 use super::{option::BlockOption, rules::BlockRule};
 
@@ -9,8 +10,7 @@ use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;
 use std::rc::Rc;
 
-/// PeerBlocker is a tool for blocking malicious peers in aria2
-pub struct PeerBlocker {
+pub struct Blocker {
     /// The websocket rpc client for interacting with the aria2 server
     pub(super) client: Client,
     /// The rules for blocking peers
@@ -34,14 +34,14 @@ pub(super) enum BlockStatus {
     AlreadyBlocked(String),       // Already blocked
 }
 
-/// PeerSnapshot stores the snapshot of a peer's download progress
+/// Snapshots of a peer's download progress
 #[derive(Debug, Clone)]
 pub(super) struct PeerSnapshot {
-    pub(super) bitfield: String,  // The peer's bitfield
     pub(super) upload_speed: u64, // The client's upload speed to the peer
+    pub(super) percentage: f64,   // The peer's download progress percentage
+    pub(super) bitfield: String,  // The peer's bitfield
 }
 
-/// Cache stores the blocklist and peer snapshots
 #[derive(Default)]
 pub(super) struct Cache {
     /// The blocklist stores the blocked IP, block status and the timestamp when they were blocked

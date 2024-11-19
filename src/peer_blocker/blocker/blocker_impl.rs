@@ -1,30 +1,20 @@
 use super::{
     super::{
-        option::BlockOption,
-        rules::{BlockRule, PeerIdRule, PeerIdRuleMethod},
+        rules::{PeerIdRule, PeerIdRuleMethod},
         utils::timestamp,
     },
-    {BlockStatus, PeerBlocker, PeerSnapshot},
+    builder::PeerBlockerBuilder,
+    {BlockStatus, Blocker, PeerSnapshot},
 };
 
 use anyhow::Result;
-use aria2_ws::{response::Status, Client};
+use aria2_ws::response::Status as TaskStatus;
 use log::{debug, info};
 use percent_encoding::percent_decode;
 
-use std::{collections::VecDeque, net::IpAddr, rc::Rc};
+use std::{collections::VecDeque, net::IpAddr};
 
-#[derive(Default)]
-pub struct PeerBlockerBuilder {
-    host: String,
-    port: u16,
-    secure: bool,
-    secret: Option<String>,
-    rule: BlockRule,
-    option: BlockOption,
-}
-
-impl PeerBlocker {
+impl Blocker {
     pub fn builder() -> PeerBlockerBuilder {
         PeerBlockerBuilder::default()
     }
@@ -44,8 +34,9 @@ impl PeerBlocker {
                         .decode_utf8_lossy()
                         .to_lowercase();
                     let peer_snapshot = PeerSnapshot {
-                        bitfield: peer.bitfield,
                         upload_speed: peer.upload_speed,
+                        percentage: percentage(&peer.bitfield, task.num_pieces),
+                        bitfield: peer.bitfield,
                     };
 
                     let block_status =
@@ -55,7 +46,7 @@ impl PeerBlocker {
                         } else if self.match_empty_peer_id(&peer_id) == BlockStatus::EmptyPeerId {
                             info!("BLOCK: [{}] [EMPTY PEER ID]", ip);
                             BlockStatus::EmptyPeerId
-                        } else if self.match_illegal_bitfield(&peer_snapshot.bitfield, &task)
+                        } else if self.match_illegal_bitfield(&peer_snapshot)
                             == BlockStatus::IllegalBitfield
                         {
                             info!("BLOCK: [{}] [EMPTY BITFIELD]", ip);
@@ -66,17 +57,17 @@ impl PeerBlocker {
                             info!("BLOCK: [{}] [PEER ID: {}]", ip, peer_id_prefix);
                             BlockStatus::BlockByPeerId(peer_id_prefix)
                         } else if let BlockStatus::BlockByRewind(pieces, percent) =
-                            self.match_rewind_block(ip, &peer_snapshot, &task)
+                            self.match_rewind_block(ip, &peer_snapshot)
                         {
                             info!(
-                                "BLOCK: [{}] [REWIND PIECES: {}] [REWIND PERCENT: {:.2}%]",
+                                "BLOCK: [{}] [REWIND PIECES: {}] [REWIND PERCENTAGE: {:.2}%]",
                                 ip,
                                 pieces,
                                 percent * 100.0
                             );
                             BlockStatus::BlockByRewind(pieces, percent)
                         } else if let BlockStatus::BlockByCompletedLatency(latency) =
-                            self.match_completed_latency(ip, &peer_snapshot, &task)
+                            self.match_completed_latency(ip, &peer_snapshot)
                         {
                             info!("BLOCK: [{}] [COMPLETED LATENCY: {}]", ip, latency);
                             BlockStatus::BlockByCompletedLatency(latency)
@@ -111,7 +102,7 @@ impl PeerBlocker {
     }
 
     /// Get the list of active BitTorrent tasks
-    async fn get_active_bittorrent_tasks(&self) -> Result<Vec<Status>> {
+    async fn get_active_bittorrent_tasks(&self) -> Result<Vec<TaskStatus>> {
         Ok(self
             .client
             .tell_active()
@@ -149,8 +140,9 @@ impl PeerBlocker {
         }
     }
 
-    fn match_illegal_bitfield(&self, bitfield: &str, task: &Status) -> BlockStatus {
-        match bitfield.is_empty() || percentage(bitfield, task.num_pieces) > 1.0 {
+    fn match_illegal_bitfield(&self, peer: &PeerSnapshot) -> BlockStatus {
+        // Mark empty bitfield or percentage greater than 1.0 as illegal
+        match peer.bitfield.is_empty() || peer.percentage > 1.0 {
             true => BlockStatus::IllegalBitfield,
             false => BlockStatus::Unblocked,
         }
@@ -165,13 +157,12 @@ impl PeerBlocker {
     }
 
     /// Check if the peer should be blocked based on the rewinded pieces and rewinded percent
-    fn match_rewind_block(&self, ip: IpAddr, peer: &PeerSnapshot, task: &Status) -> BlockStatus {
-        let percent = percentage(&peer.bitfield, task.num_pieces);
+    fn match_rewind_block(&self, ip: IpAddr, peer: &PeerSnapshot) -> BlockStatus {
         debug!(
-            "PEER DETAIL: [{}], BITFIELD: [{:.20}], PERCENT: [{:.2}%]",
+            "PEER DETAIL: [{}], BITFIELD: [{:.20}], PERCENTAGE: [{:.2}%]",
             ip,
             peer.bitfield,
-            percent * 100.0
+            peer.percentage * 100.0
         );
         if let Some((snapshots, _)) = self.cache.borrow().peer_snapshots.get(&ip) {
             if let Some(last) = snapshots.back() {
@@ -182,16 +173,15 @@ impl PeerBlocker {
                     ip, last.bitfield, rewind_pieces
                 );
                 if rewind_pieces > self.rule.max_rewind_pieces {
-                    let last_percent = percentage(&last.bitfield, task.num_pieces);
                     debug!(
-                        "PEER DETAIL: [{}], LAST PERCENT: [{:.2}%]",
+                        "PEER DETAIL: [{}], LAST PERCENTAGE: [{:.2}%]",
                         ip,
-                        last_percent * 100.0
+                        last.percentage * 100.0
                     );
-                    if last_percent > percent {
-                        let rewind_percent = last_percent - percent;
+                    if last.percentage > peer.percentage {
+                        let rewind_percent = last.percentage - peer.percentage;
                         debug!(
-                            "PEER DETAIL: [{}], REWIND PERCENT: [{:.2}%]",
+                            "PEER DETAIL: [{}], REWIND PERCENTAGE: [{:.2}%]",
                             ip,
                             rewind_percent * 100.0
                         );
@@ -206,17 +196,10 @@ impl PeerBlocker {
     }
 
     /// Check if the peer should be blocked based on the download completion to zero upload speed latency
-    fn match_completed_latency(
-        &self,
-        ip: IpAddr,
-        peer: &PeerSnapshot,
-        task: &Status,
-    ) -> BlockStatus {
-        let percent = percentage(&peer.bitfield, task.num_pieces);
-
+    fn match_completed_latency(&self, ip: IpAddr, peer: &PeerSnapshot) -> BlockStatus {
         let binding = self.cache.borrow();
         let (snapshot, _) = binding.peer_snapshots.get(&ip).unwrap();
-        if !snapshot.is_empty() && percent == 1.0 {
+        if !snapshot.is_empty() && peer.percentage == 1.0 {
             let latency = if peer.upload_speed != 0 {
                 snapshot.len() + 1
             } else {
@@ -242,7 +225,7 @@ impl PeerBlocker {
         &self,
         ip: IpAddr,
         peer: &PeerSnapshot,
-        task: &Status,
+        task: &TaskStatus,
     ) -> BlockStatus {
         if let Some((snapshots, _)) = self.cache.borrow().peer_snapshots.get(&ip) {
             if snapshots.len() == self.option.sampling_count as usize {
@@ -328,48 +311,6 @@ impl PeerBlocker {
             .retain(|_, (_, t)| now - *t < self.option.peer_snapshot_timeout as u64);
     }
 }
-
-impl PeerBlockerBuilder {
-    pub fn host(mut self, host: &str) -> Self {
-        self.host = host.to_string();
-        self
-    }
-    pub fn port(mut self, port: u16) -> Self {
-        self.port = port;
-        self
-    }
-    pub fn secure(mut self, secure: bool) -> Self {
-        self.secure = secure;
-        self
-    }
-    pub fn secret(mut self, secret: &Option<String>) -> Self {
-        self.secret = secret.clone();
-        self
-    }
-    pub fn rule(mut self, rule: &BlockRule) -> Self {
-        self.rule = rule.clone();
-        self
-    }
-    pub fn option(mut self, option: &BlockOption) -> Self {
-        self.option = option.clone();
-        self
-    }
-    pub async fn build(self) -> Result<PeerBlocker> {
-        let url = format!(
-            "{}://{}:{}/jsonrpc",
-            if self.secure { "wss" } else { "ws" },
-            self.host,
-            self.port
-        );
-        Ok(PeerBlocker {
-            client: Client::connect(&url, self.secret.as_deref()).await?,
-            rule: self.rule,
-            option: self.option,
-            cache: Rc::default(),
-        })
-    }
-}
-
 /// Check if the peer ID matches any of the rules
 fn match_rule(peer_id: &str, rules: &[PeerIdRule]) -> bool {
     rules.iter().any(|rule| match rule.method {

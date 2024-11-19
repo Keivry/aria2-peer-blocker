@@ -4,7 +4,7 @@ mod option;
 mod rules;
 mod utils;
 
-pub use blocker::PeerBlocker;
+pub use blocker::Blocker;
 pub use executor::Executor;
 pub use option::BlockOption;
 pub use rules::{BlockRule, PeerIdRule};

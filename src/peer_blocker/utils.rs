@@ -1,9 +1,8 @@
 use chrono::Local;
-use std::net::IpAddr;
-
 use ipset::types::NetDataType;
 
 use std::fmt::{Display, Formatter, Result};
+use std::net::IpAddr;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Cidr {

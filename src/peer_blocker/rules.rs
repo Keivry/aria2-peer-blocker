@@ -30,7 +30,10 @@ pub struct BlockRule {
     /// The maximum allowed difference between the estimated upload size
     /// and the actual download size reported by the peer
     /// If the difference is greater than this value, the peer will be blocked
-    pub max_difference: f64,
+    pub max_upload_difference: f64,
+
+    /// The maximum allowed latency from the peer's download completion to the upload speed reaching zero
+    pub max_latency_completed_to_zero: u32,
 
     /// The rules for blocking peers based on the peer ID
     pub peer_id_block_rules: Rc<Vec<PeerIdRule>>,
@@ -40,7 +43,8 @@ pub struct BlockRule {
 pub struct BlockRuleBuilder {
     max_rewind_pieces: u32,
     max_rewind_percent: f64,
-    max_difference: f64,
+    max_upload_difference: f64,
+    max_latency_completed_to_zero: u32,
     peer_id_block_rules: Rc<Vec<PeerIdRule>>,
 }
 
@@ -59,19 +63,24 @@ impl BlockRuleBuilder {
         self.max_rewind_percent = max_rewind_percent;
         self
     }
-    pub fn max_difference(mut self, max_difference: f64) -> Self {
-        self.max_difference = max_difference;
+    pub fn max_upload_difference(mut self, max_upload_difference: f64) -> Self {
+        self.max_upload_difference = max_upload_difference;
         self
     }
     pub fn peer_id_block_rules(mut self, peer_id_block_rules: Rc<Vec<PeerIdRule>>) -> Self {
         self.peer_id_block_rules = peer_id_block_rules;
         self
     }
+    pub fn max_latency_completed_to_zero(mut self, max_latency_completed_to_zero: u32) -> Self {
+        self.max_latency_completed_to_zero = max_latency_completed_to_zero;
+        self
+    }
     pub fn build(self) -> BlockRule {
         BlockRule {
             max_rewind_pieces: self.max_rewind_pieces,
             max_rewind_percent: self.max_rewind_percent,
-            max_difference: self.max_difference,
+            max_upload_difference: self.max_upload_difference,
+            max_latency_completed_to_zero: self.max_latency_completed_to_zero,
             peer_id_block_rules: self.peer_id_block_rules,
         }
     }

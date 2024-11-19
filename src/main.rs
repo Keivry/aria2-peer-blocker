@@ -39,7 +39,8 @@ async fn main() {
     let block_rule = BlockRule::builder()
         .max_rewind_pieces(config.rules.max_rewind_pieces)
         .max_rewind_percent(config.rules.max_rewind_percent)
-        .max_difference(config.rules.max_difference)
+        .max_upload_difference(config.rules.max_upload_difference)
+        .max_latency_completed_to_zero(config.rules.max_latency_completed_to_zero)
         .peer_id_block_rules(config.rules.peer_id_rules.clone())
         .build();
     let block_option = BlockOption::builder()

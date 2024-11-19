@@ -53,9 +53,12 @@ pub struct RuleConfig {
     /// Maximum rewind percent, default to 5%
     #[serde(default = "default_max_rewind_percent")]
     pub max_rewind_percent: f64,
-    /// Maximum difference between pieces, default to 10%
-    #[serde(default = "default_max_difference")]
-    pub max_difference: f64,
+    /// Maximum allowed difference between upload size between estimated and reported by peer, default to 10%
+    #[serde(default = "default_max_upload_difference")]
+    pub max_upload_difference: f64,
+    /// Maximum allowed latency from peer's download completion to the upload speed reaching zero, default to 30
+    #[serde(default = "default_max_latency_completed_to_zero")]
+    pub max_latency_completed_to_zero: u32,
     #[serde(deserialize_with = "deserialize_peer_id_rules")]
     pub peer_id_rules: Rc<Vec<PeerIdRule>>,
 }
@@ -149,8 +152,13 @@ fn default_max_rewind_percent() -> f64 {
 }
 
 #[inline]
-fn default_max_difference() -> f64 {
+fn default_max_upload_difference() -> f64 {
     0.10
+}
+
+#[inline]
+fn default_max_latency_completed_to_zero() -> u32 {
+    30
 }
 
 #[inline]

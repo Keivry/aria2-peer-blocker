@@ -55,11 +55,11 @@ impl PeerBlocker {
                         } else if self.match_empty_peer_id(&peer_id) == BlockStatus::EmptyPeerId {
                             info!("BLOCK: [{}] [EMPTY PEER ID]", ip);
                             BlockStatus::EmptyPeerId
-                        } else if self.match_empty_bitfield(&peer_snapshot.bitfield)
-                            == BlockStatus::EmptyBitfield
+                        } else if self.match_illegal_bitfield(&peer_snapshot.bitfield, &task)
+                            == BlockStatus::IllegalBitfield
                         {
                             info!("BLOCK: [{}] [EMPTY BITFIELD]", ip);
-                            BlockStatus::EmptyBitfield
+                            BlockStatus::IllegalBitfield
                         } else if let BlockStatus::BlockByPeerId(peer_id_prefix) =
                             self.match_peer_id_block(&peer_id)
                         {
@@ -75,6 +75,11 @@ impl PeerBlocker {
                                 percent * 100.0
                             );
                             BlockStatus::BlockByRewind(pieces, percent)
+                        } else if let BlockStatus::BlockByCompletedLatency(latency) =
+                            self.match_completed_latency(ip, &peer_snapshot, &task)
+                        {
+                            info!("BLOCK: [{}] [COMPLETED LATENCY: {}]", ip, latency);
+                            BlockStatus::BlockByCompletedLatency(latency)
                         } else if let BlockStatus::BlockByUploadDifference(percent) =
                             self.match_upload_data_block(ip, &peer_snapshot, &task)
                         {
@@ -123,10 +128,11 @@ impl PeerBlocker {
             if timestamp() - t < self.option.peer_disconnect_latency as u64 {
                 let s = match status {
                     BlockStatus::EmptyPeerId => "EmptyPeerId",
-                    BlockStatus::EmptyBitfield => "EmptyBitfield",
+                    BlockStatus::IllegalBitfield => "EmptyBitfield",
                     BlockStatus::BlockByPeerId(_) => "BlockByPeerId",
                     BlockStatus::BlockByRewind(_, _) => "BlockByRewind",
                     BlockStatus::BlockByUploadDifference(_) => "BlockByUploadDifference",
+                    BlockStatus::BlockByCompletedLatency(_) => "BlockByCompletedLatency",
                     _ => "",
                 };
                 return BlockStatus::AlreadyBlocked(s.to_owned());
@@ -136,15 +142,16 @@ impl PeerBlocker {
     }
 
     fn match_empty_peer_id(&self, peer_id: &str) -> BlockStatus {
+        // Mark peer_id full of '\0' as empty
         match peer_id.is_empty() || peer_id == "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0" {
             true => BlockStatus::EmptyPeerId,
             false => BlockStatus::Unblocked,
         }
     }
 
-    fn match_empty_bitfield(&self, bitfield: &str) -> BlockStatus {
-        match bitfield.is_empty() {
-            true => BlockStatus::EmptyBitfield,
+    fn match_illegal_bitfield(&self, bitfield: &str, task: &Status) -> BlockStatus {
+        match bitfield.is_empty() || percentage(bitfield, task.num_pieces) > 1.0 {
+            true => BlockStatus::IllegalBitfield,
             false => BlockStatus::Unblocked,
         }
     }
@@ -188,11 +195,43 @@ impl PeerBlocker {
                             ip,
                             rewind_percent * 100.0
                         );
-                        if rewind_percent >= self.rule.max_rewind_percent {
+                        if rewind_percent > self.rule.max_rewind_percent {
                             return BlockStatus::BlockByRewind(rewind_pieces, rewind_percent);
                         }
                     }
                 }
+            }
+        }
+        BlockStatus::Unblocked
+    }
+
+    /// Check if the peer should be blocked based on the download completion to zero upload speed latency
+    fn match_completed_latency(
+        &self,
+        ip: IpAddr,
+        peer: &PeerSnapshot,
+        task: &Status,
+    ) -> BlockStatus {
+        let percent = percentage(&peer.bitfield, task.num_pieces);
+
+        let binding = self.cache.borrow();
+        let (snapshot, _) = binding.peer_snapshots.get(&ip).unwrap();
+        if !snapshot.is_empty() && percent == 1.0 {
+            let latency = if peer.upload_speed != 0 {
+                snapshot.len() + 1
+            } else {
+                snapshot
+                    .iter()
+                    .enumerate()
+                    .find(|(_, s)| s.upload_speed == 0)
+                    .map(|(i, _)| i)
+                    .unwrap_or(snapshot.len())
+            } as u32
+                * self.option.sampling_interval;
+
+            debug!("PEER DETAIL: [{}], COMPLETED LATENCY: [{}]", ip, latency);
+            if latency > self.rule.max_latency_completed_to_zero {
+                return BlockStatus::BlockByCompletedLatency(latency);
             }
         }
         BlockStatus::Unblocked
@@ -215,7 +254,7 @@ impl PeerBlocker {
                     ip, estimated_upload
                 );
 
-                if estimated_upload >= task.piece_length {
+                if estimated_upload > task.piece_length {
                     let peer_download =
                         // Calculate the number of pieces downloaded by the peer
                         rewind_pieces(&peer.bitfield, &snapshots.front().unwrap().bitfield) as u64
@@ -226,7 +265,7 @@ impl PeerBlocker {
                         (estimated_upload as f64 - peer_download as f64) / estimated_upload as f64;
                     debug!("PEER DETAIL: [{}], DIFFERENCE: [{}]", ip, diff);
 
-                    if diff >= self.rule.max_difference {
+                    if diff > self.rule.max_upload_difference {
                         return BlockStatus::BlockByUploadDifference(diff);
                     }
                 }
@@ -340,12 +379,12 @@ fn match_rule(peer_id: &str, rules: &[PeerIdRule]) -> bool {
 }
 
 /// Calculate the number of rewinded pieces
-fn rewind_pieces(last_bitfield: &str, current_bitfield: &str) -> u32 {
-    let last_bits = match hex::decode(last_bitfield) {
+fn rewind_pieces(base: &str, bitfield: &str) -> u32 {
+    let last_bits = match hex::decode(base) {
         Ok(bits) => bits,
         Err(_) => return 0,
     };
-    let current_bits = match hex::decode(current_bitfield) {
+    let current_bits = match hex::decode(bitfield) {
         Ok(bits) => bits,
         Err(_) => return 0,
     };

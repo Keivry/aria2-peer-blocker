@@ -26,10 +26,11 @@ pub struct PeerBlocker {
 pub(super) enum BlockStatus {
     Unblocked,                    // Not blocked
     EmptyPeerId,                  // Empty peer ID
-    EmptyBitfield,                // Empty bitfield
+    IllegalBitfield,              // Empty bitfield
     BlockByPeerId(String),        // Blocked by peer ID with peer id prefix
     BlockByRewind(u32, f64),      // Blocked by rewinding pieces count and percentage
     BlockByUploadDifference(f64), // Blocked by upload progress difference
+    BlockByCompletedLatency(u32), // Blocked by download completion to zero latency
     AlreadyBlocked(String),       // Already blocked
 }
 

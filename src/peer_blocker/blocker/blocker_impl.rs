@@ -46,16 +46,16 @@ impl Blocker {
                         } else if self.match_empty_peer_id(&peer_id) == BlockStatus::EmptyPeerId {
                             info!("BLOCK: [{}] [EMPTY PEER ID]", ip);
                             BlockStatus::EmptyPeerId
-                        } else if self.match_illegal_bitfield(&peer_snapshot)
-                            == BlockStatus::IllegalBitfield
-                        {
-                            info!("BLOCK: [{}] [EMPTY BITFIELD]", ip);
-                            BlockStatus::IllegalBitfield
                         } else if let BlockStatus::BlockByPeerId(peer_id_prefix) =
                             self.match_peer_id_block(&peer_id)
                         {
                             info!("BLOCK: [{}] [PEER ID: {}]", ip, peer_id_prefix);
                             BlockStatus::BlockByPeerId(peer_id_prefix)
+                        } else if self.match_illegal_bitfield(&peer_snapshot)
+                            == BlockStatus::IllegalBitfield
+                        {
+                            info!("BLOCK: [{}] [EMPTY BITFIELD]", ip);
+                            BlockStatus::IllegalBitfield
                         } else if let BlockStatus::BlockByRewind(pieces, percent) =
                             self.match_rewind_block(ip, &peer_snapshot)
                         {
@@ -140,18 +140,18 @@ impl Blocker {
         }
     }
 
-    fn match_illegal_bitfield(&self, peer: &PeerSnapshot) -> BlockStatus {
-        // Mark empty bitfield or percentage greater than 1.0 as illegal
-        match peer.bitfield.is_empty() || peer.percentage > 1.0 {
-            true => BlockStatus::IllegalBitfield,
-            false => BlockStatus::Unblocked,
-        }
-    }
-
     /// Check if the peer should be blocked based on the peer ID
     fn match_peer_id_block(&self, peer_id: &str) -> BlockStatus {
         match match_rule(peer_id, &self.rule.peer_id_block_rules) {
             true => BlockStatus::BlockByPeerId(peer_id.get(..8).unwrap_or("TOOSHORT").to_string()),
+            false => BlockStatus::Unblocked,
+        }
+    }
+
+    fn match_illegal_bitfield(&self, peer: &PeerSnapshot) -> BlockStatus {
+        // Mark empty bitfield or percentage greater than 1.0 as illegal
+        match peer.bitfield.is_empty() || peer.percentage > 1.0 {
+            true => BlockStatus::IllegalBitfield,
             false => BlockStatus::Unblocked,
         }
     }

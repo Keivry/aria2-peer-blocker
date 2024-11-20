@@ -2,12 +2,12 @@ use super::{
     super::{
         rules::{PeerIdRule, PeerIdRuleMethod},
         utils::timestamp,
+        Result,
     },
     builder::PeerBlockerBuilder,
     {BlockStatus, Blocker, PeerSnapshot},
 };
 
-use anyhow::Result;
 use aria2_ws::response::Status as TaskStatus;
 use log::{debug, info};
 use percent_encoding::percent_decode;

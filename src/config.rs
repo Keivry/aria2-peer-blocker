@@ -1,6 +1,5 @@
-use super::peer_blocker::PeerIdRule;
+use super::peer_blocker::{PeerIdRule, Result};
 
-use anyhow::Result;
 use serde::Deserialize;
 
 use std::rc::Rc;
@@ -110,7 +109,9 @@ impl Config {
     }
 }
 
-fn deserialize_peer_id_rules<'de, D>(deserializer: D) -> Result<Rc<Vec<PeerIdRule>>, D::Error>
+fn deserialize_peer_id_rules<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Rc<Vec<PeerIdRule>>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {

@@ -1,6 +1,5 @@
-use super::{BlockOption, BlockRule, Blocker};
+use super::{super::Result, BlockOption, BlockRule, Blocker};
 
-use anyhow::Result;
 use aria2_ws::Client;
 
 use std::rc::Rc;

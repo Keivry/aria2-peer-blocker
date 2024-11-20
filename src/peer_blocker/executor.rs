@@ -1,6 +1,8 @@
-use super::utils::{timestamp, Cidr};
+use super::{
+    utils::{timestamp, Cidr},
+    Result,
+};
 
-use anyhow::Result;
 use ipset::{types::HashNet, Session};
 use log::info;
 
@@ -42,7 +44,7 @@ impl Executor {
             self.session.add(&net, &[])?;
             self.ips.insert(net.clone(), now);
             info!("UPDATE IPSET [ADD] [{}] [{}].", self.ipset, net);
-            anyhow::Ok(())
+            Result::Ok(())
         })?;
 
         // Clean old IPs

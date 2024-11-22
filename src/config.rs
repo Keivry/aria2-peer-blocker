@@ -154,7 +154,7 @@ fn default_max_rewind_percent() -> f64 {
 
 #[inline]
 fn default_max_upload_difference() -> f64 {
-    0.10
+    0.20
 }
 
 #[inline]
@@ -169,12 +169,12 @@ fn default_block_duration() -> u32 {
 
 #[inline]
 fn default_sampling_count() -> u8 {
-    10
+    20
 }
 
 #[inline]
 fn default_interval() -> u32 {
-    10
+    5
 }
 
 #[inline]

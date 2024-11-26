@@ -1,11 +1,48 @@
-[log]
-level = "debug"
+## Configuration for aria2-peer-blocker
+#
+## [log]
+##     - level: log level, available values are "trace", "debug", "info", "warn", "error", "off".
+##     - timestamp: whether to add timestamp to log output.
+#
+# [log]
+# level = "info"
+# timestamp = false
 
+## [aria2_rpc]
+##     - host: aria2 RPC server host.
+##     - port: aria2 RPC server port.
+##     - secure: whether aria2 RPC transport will be encrypted by ssl/tls.
+##     - secret: aria2 RPC secret authorization token.
+#
 [aria2_rpc]
-host = "192.168.128.250"
-port = 46800
+host = "localhost"
+port = 6800
+# secure = false
+# secret = ""
 
+## [rules]
+##     - max_rewind_pieces & max_rewind_percent:
+##          maximum rewind pieces count and percentage of totol length allowed for a peer,
+##          if both exceed the specified values, the peer will be blocked.
+##     - max_upload_difference:
+##          maximum allowed difference between upload size between estimated and reported by peer,
+##              estimated = sum(snapshots.upload_speed) * interval,
+##              reported = diff(snapshots[0].bitfield, snapshots[-1].bitfield).count * pieces_length.
+##              difference = (estimated - reported) / estimated,
+##     - max_latency_completed_to_zero:
+##          maximum allowed latency from peer's download completion to the upload speed reaching zero
+##     - peer_id_rules:
+##          list of rules for peer id matching, if any rule is matched, the peer will be blocked.
+##          - method: matching method, available values are "STARTS_WITH" and "CONTAINS".
+##          - content: matching content.
+#
 [rules]
+# max_rewind_pieces = 5
+# max_rewind_pecent = 0.05
+# max_upload_difference = 0.20
+# max_latency_completed_to_zero = 30
+#
+## https://docs.pbh-btn.com/docs/module/peer-id/
 peer_id_rules = [
     { method = "STARTS_WITH", content = "-xl" },
     { method = "STARTS_WITH", content = "-hp" },
@@ -26,6 +63,32 @@ peer_id_rules = [
     { method = "CONTAINS", content = "cacao" },
 ]
 
+## [option]
+##     - snapshots_count: number of peer information snapshots to keep for each peer.
+##     - interval: time interval for take snapshot of peer information from aria2.
+##     - exception_interval: time interval when exception occurs while querying peer information.
+##     - peer_disconnect_latency: latency from peer being blocked to disconnecting by aria2.
+##     - peer_snapshot_timeout: timeout for peer snapshots to be released, from the last snapshot.
+##     - block_duration: duration for blocking a peer, remove the peer from block list after this duration.
+#
+# [option]
+# snapshots_count = 30
+# interval = 2
+# exception_interval = 90
+# peer_disconnect_latency = 180
+# peer_snapshot_timeout = 300
+# block_duration = 43200
+
+## [ipset]
+##     flush: boolean value to control whether to flush the ipsets on startup.
+##     v4: ipset name for IPv4.
+##     netmask_v4: netmask length for IPv4.
+##     v6: ipset name for IPv6.
+##     netmask_v6: netmask length for IPv6.
+#
 [ipset]
+# flush = true
 v4 = "blockIP"
+# netmask_v4 = 32
 v6 = "blockIPv6"
+# netmask_v6 = 64

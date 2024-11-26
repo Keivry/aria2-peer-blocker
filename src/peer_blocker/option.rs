@@ -1,9 +1,9 @@
 #[derive(Default, Debug, Clone)]
 pub struct BlockOption {
     /// The number of snapshots to keep for each peer
-    pub sampling_count: u8,
+    pub snapshots_count: u8,
     /// The interval between each snapshot, in seconds
-    pub sampling_interval: u32,
+    pub interval: u32,
     /// Seconds to keep the peer snapshots
     pub peer_snapshot_timeout: u32,
     /// Seconds to aria2 disconnect the peer after blocking
@@ -18,20 +18,20 @@ impl BlockOption {
 
 #[derive(Default)]
 pub struct BlockOptionBuilder {
-    sampling_count: u8,
-    sampling_interval: u32,
+    snapshots_count: u8,
+    interval: u32,
     peer_snapshot_timeout: u32,
     peer_disconnect_latency: u32,
 }
 
 impl BlockOptionBuilder {
-    pub fn sampling_count(mut self, sampling_count: u8) -> Self {
-        self.sampling_count = sampling_count;
+    pub fn snapshots_count(mut self, snapshots_count: u8) -> Self {
+        self.snapshots_count = snapshots_count;
         self
     }
 
-    pub fn sampling_interval(mut self, sampling_interval: u32) -> Self {
-        self.sampling_interval = sampling_interval;
+    pub fn interval(mut self, interval: u32) -> Self {
+        self.interval = interval;
         self
     }
 
@@ -47,8 +47,8 @@ impl BlockOptionBuilder {
 
     pub fn build(self) -> BlockOption {
         BlockOption {
-            sampling_count: self.sampling_count,
-            sampling_interval: self.sampling_interval,
+            snapshots_count: self.snapshots_count,
+            interval: self.interval,
             peer_snapshot_timeout: self.peer_snapshot_timeout,
             peer_disconnect_latency: self.peer_disconnect_latency,
         }

@@ -52,10 +52,10 @@ pub struct RuleConfig {
     /// Maximum rewind percent, default to 5%
     #[serde(default = "default_max_rewind_percent")]
     pub max_rewind_percent: f64,
-    /// Maximum allowed difference between upload size between estimated and reported by peer, default to 10%
+    /// Maximum allowed difference between upload size between estimated and reported by peer, default to 20%
     #[serde(default = "default_max_upload_difference")]
     pub max_upload_difference: f64,
-    /// Maximum allowed latency from peer's download completion to the upload speed reaching zero, default to 30
+    /// Maximum allowed latency from peer's download completion to the upload speed reaching zero, default to 30 seconds
     #[serde(default = "default_max_latency_completed_to_zero")]
     pub max_latency_completed_to_zero: u32,
     #[serde(deserialize_with = "deserialize_peer_id_rules")]
@@ -64,19 +64,19 @@ pub struct RuleConfig {
 
 #[derive(Debug, Deserialize)]
 pub struct OptionConfig {
-    /// Sampling count, default to 10
-    #[serde(default = "default_sampling_count")]
-    pub sampling_count: u8,
-    /// Sampling interval, default to 10
+    /// Snapshots count, default to 30
+    #[serde(default = "default_snapshots_count")]
+    pub snapshots_count: u8,
+    /// interval to take snapshot, default to 2 seconds
     #[serde(default = "default_interval")]
     pub interval: u32,
-    /// Exception interval, default to 90
+    /// Exception interval, default to 90 seconds
     #[serde(default = "default_exception_interval")]
     pub exception_interval: u32,
-    /// Peer disconnect latency, default to 180
+    /// Peer disconnect latency, default to 180 seconds
     #[serde(default = "default_peer_disconnect_latency")]
     pub peer_disconnect_latency: u32,
-    /// Peer snapshot timeout, default to 300
+    /// Peer snapshot timeout, default to 300 seconds
     #[serde(default = "default_peer_snapshot_timeout")]
     pub peer_snapshot_timeout: u32,
     /// Block duration, default to 12 hours
@@ -128,7 +128,7 @@ fn default_log_config() -> LoggerConfig {
 
 fn default_option_config() -> OptionConfig {
     OptionConfig {
-        sampling_count: default_sampling_count(),
+        snapshots_count: default_snapshots_count(),
         interval: default_interval(),
         exception_interval: default_exception_interval(),
         peer_disconnect_latency: default_peer_disconnect_latency(),
@@ -168,13 +168,13 @@ fn default_block_duration() -> u32 {
 }
 
 #[inline]
-fn default_sampling_count() -> u8 {
-    20
+fn default_snapshots_count() -> u8 {
+    30
 }
 
 #[inline]
 fn default_interval() -> u32 {
-    5
+    2
 }
 
 #[inline]

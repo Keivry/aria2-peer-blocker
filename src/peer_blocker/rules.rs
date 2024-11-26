@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 use std::rc::Rc;
 
@@ -15,6 +15,7 @@ pub enum PeerIdRuleMethod {
 #[derive(Debug, Deserialize)]
 pub struct PeerIdRule {
     pub method: PeerIdRuleMethod,
+    #[serde(deserialize_with = "deserialize_lowercase")]
     pub content: String,
 }
 
@@ -84,4 +85,12 @@ impl BlockRuleBuilder {
             peer_id_block_rules: self.peer_id_block_rules,
         }
     }
+}
+
+fn deserialize_lowercase<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    Ok(s.to_lowercase())
 }

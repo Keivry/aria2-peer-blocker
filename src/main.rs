@@ -10,7 +10,7 @@ use colored::{Color, Colorize};
 use log::{debug, error, LevelFilter};
 use tokio::time::sleep;
 
-use std::{collections::HashSet, io::Write, net::IpAddr, rc::Rc, str::FromStr, time::Duration};
+use std::{io::Write, rc::Rc, str::FromStr, time::Duration};
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -44,8 +44,8 @@ async fn main() {
         .peer_id_block_rules(config.rules.peer_id_rules.clone())
         .build();
     let block_option = BlockOption::builder()
-        .sampling_count(config.option.sampling_count)
-        .sampling_interval(config.option.interval)
+        .snapshots_count(config.option.snapshots_count)
+        .interval(config.option.interval)
         .peer_snapshot_timeout(config.option.peer_snapshot_timeout)
         .peer_disconnect_latency(config.option.peer_disconnect_latency)
         .build();
@@ -62,7 +62,7 @@ async fn main() {
         {
             Ok(blocker) => break blocker,
             Err(e) => {
-                error!("Failed to initialize PeerBlocker: {:?}", e);
+                error!("Initialization error: {:?}", e);
                 sleep(exception_interval).await;
             }
         }
@@ -84,28 +84,25 @@ async fn main() {
 
     // Get blocked peers and write to ipset
     loop {
-        let peers = loop {
+        let (ipv4, ipv6) = loop {
             match blocker.get_blocked_peers().await {
                 Ok(peers) => break peers,
                 Err(e) => {
-                    error!("Failed to get blocked peers: {:?}", e);
+                    error!("Error querying blocked peers: {:?}", e);
                     sleep(exception_interval).await;
                 }
             }
         };
-        debug!("BLOCKED PEERS: {:?}", peers);
-
-        // Split ipv4 and ipv6 peers
-        let (ipv4, ipv6): (HashSet<IpAddr>, HashSet<IpAddr>) =
-            peers.into_iter().partition(|ip| ip.is_ipv4());
+        debug!("BLOCKED IPV4 PEERS: {:?}", ipv4);
+        debug!("BLOCKED IPV6 PEERS: {:?}", ipv6);
 
         // Update ipset
         executor_v4
             .update(&ipv4)
-            .unwrap_or_else(|_| error!("Failed to update ipset [{}]!", config.ipset.v4));
+            .unwrap_or_else(|_| error!("Error updating IPSet [{}]!", config.ipset.v4));
         executor_v6
             .update(&ipv6)
-            .unwrap_or_else(|_| error!("Failed to update ipset [{}]!", config.ipset.v6));
+            .unwrap_or_else(|_| error!("Error updating IPSet [{}]!", config.ipset.v6));
 
         sleep(interval).await
     }

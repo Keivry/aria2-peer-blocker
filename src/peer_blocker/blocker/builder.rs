@@ -1,11 +1,14 @@
-use super::{super::Result, BlockOption, BlockRule, Blocker};
+use super::{
+    super::{BlockOption, BlockRule, Result},
+    Blocker,
+};
 
 use aria2_ws::Client;
 
 use std::rc::Rc;
 
 #[derive(Default)]
-pub struct PeerBlockerBuilder {
+pub struct BlockerBuilder {
     host: String,
     port: u16,
     secure: bool,
@@ -14,7 +17,7 @@ pub struct PeerBlockerBuilder {
     option: BlockOption,
 }
 
-impl PeerBlockerBuilder {
+impl BlockerBuilder {
     pub fn host(mut self, host: &str) -> Self {
         self.host = host.to_string();
         self

@@ -4,7 +4,7 @@ use super::{
 };
 
 use ipset::{types::HashNet, Session};
-use log::info;
+use log::debug;
 
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
@@ -43,7 +43,7 @@ impl Executor {
             let net = Cidr::new(*ip, self.netmask);
             self.session.add(&net, &[])?;
             self.ips.insert(net.clone(), now);
-            info!("UPDATE IPSET [ADD] [{}] [{}].", self.ipset, net);
+            debug!("UPDATE IPSET [ADD] [{}] [{}].", self.ipset, net);
             Result::Ok(())
         })?;
 
@@ -51,7 +51,7 @@ impl Executor {
         self.ips.retain(|net, &mut timestamp| {
             if now - timestamp > self.duration as u64 {
                 self.session.del(net).ok();
-                info!("UPDATE IPSET [DEL] [{}] [{}].", self.ipset, net);
+                debug!("UPDATE IPSET [DEL] [{}] [{}].", self.ipset, net);
                 false
             } else {
                 true

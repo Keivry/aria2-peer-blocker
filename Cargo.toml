@@ -1,6 +1,6 @@
 [package]
 name = "aria2-peer-blocker"
-version = "0.1.9"
+version = "0.1.10"
 description = "Aria2 Peer Blocker"
 authors = ["Keivry <keivry@163.com>"]
 edition = "2021"
@@ -28,3 +28,10 @@ tokio = { version = "1.41.1", default-features = false, features = [
     "macros",
 ] }
 toml = { version = "0.8.19", default-features = false, features = ["parse"] }
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = true
+strip = true
+panic = "abort"

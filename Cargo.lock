@@ -92,7 +92,7 @@ dependencies = [
 
 [[package]]
 name = "aria2-peer-blocker"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "aria2-ws",
  "chrono",

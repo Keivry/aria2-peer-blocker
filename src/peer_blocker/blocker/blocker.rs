@@ -294,20 +294,24 @@ impl Blocker {
                     "PEER DETAIL: [{}], ESTIMATED UPLOAD: [{}]",
                     ip, estimated_upload
                 );
+                if estimated_upload == 0 {
+                    return BlockStatus::Unblocked;
+                }
 
-                if estimated_upload > 0 {
-                    let peer_download =
+                let peer_download =
                         // Calculate the number of pieces downloaded by the peer
                         rewind_pieces(&peer.bitfield, &snapshots.front().unwrap().bitfield) as u64
                             * task.piece_length;
-                    debug!("PEER DETAIL: [{}], PEER DOWNLOAD: [{}]", ip, peer_download);
+                debug!("PEER DETAIL: [{}], PEER DOWNLOAD: [{}]", ip, peer_download);
+                if estimated_upload <= peer_download {
+                    return BlockStatus::Unblocked;
+                }
 
-                    let diff = (estimated_upload - peer_download) as f64 / estimated_upload as f64;
-                    debug!("PEER DETAIL: [{}], DIFFERENCE: [{}]", ip, diff);
+                let diff = (estimated_upload - peer_download) as f64 / estimated_upload as f64;
+                debug!("PEER DETAIL: [{}], DIFFERENCE: [{}]", ip, diff);
 
-                    if diff > self.rule.max_upload_difference {
-                        return BlockStatus::BlockByUploadDifference(diff);
-                    }
+                if diff > self.rule.max_upload_difference {
+                    return BlockStatus::BlockByUploadDifference(diff);
                 }
             }
         }

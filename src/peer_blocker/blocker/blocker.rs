@@ -1,33 +1,47 @@
 use super::{
     super::{
+        ipset::IPSetOption,
         option::BlockOption,
         rules::{BlockRule, PeerIdRule, PeerIdRuleMethod},
         utils::timestamp,
         Result,
     },
     builder::BlockerBuilder,
+    executor::Executor,
 };
 
 use aria2_ws::{response::Status as TaskStatus, Client};
-use log::{debug, info};
+use log::{debug, error, info};
 use percent_encoding::percent_decode;
+use tokio::time::interval;
 
 use std::{
-    cell::RefCell,
     collections::{HashMap, HashSet, VecDeque},
     net::IpAddr,
-    rc::Rc,
+    sync::{Arc, Mutex},
+    time::Duration,
 };
 
 pub struct Blocker {
+    /// The aria2 server URL
+    pub(super) url: String,
+    /// The secret token for the aria
+    pub(super) secret: Option<String>,
+
     /// The websocket rpc client for interacting with the aria2 server
-    pub(super) client: Client,
+    pub(super) client: Option<Client>,
+
     /// The rules for blocking peers
     pub(super) rule: BlockRule,
+
     /// The options for blocking peers
     pub(super) option: BlockOption,
+
+    /// The options for ipset
+    pub(super) ipset: IPSetOption,
+
     /// The cache for storing the blocklist and peer snapshots
-    pub(super) cache: Rc<RefCell<Cache>>,
+    pub(super) cache: Arc<Mutex<Cache>>,
 }
 
 /// The status of a peer being blocked
@@ -51,7 +65,6 @@ struct PeerSnapshot {
     bitfield: String,  // The peer's bitfield
 }
 
-#[derive(Default)]
 pub(super) struct Cache {
     /// The blocklist stores the blocked IP, block status and the timestamp when they were blocked
     /// Used for checking if the peer is already blocked before aria2 disconnects it
@@ -66,17 +79,94 @@ pub(super) struct Cache {
 
 impl Blocker {
     pub fn builder() -> BlockerBuilder {
-        BlockerBuilder::default()
+        BlockerBuilder::new()
+    }
+
+    pub async fn start(&mut self) {
+        let mut exception_interval =
+            interval(Duration::from_secs(self.option.exception_interval as u64));
+        let mut interval = interval(Duration::from_secs(self.option.interval as u64));
+
+        // Initialize Blocker
+        while let Err(e) = self.initialize().await {
+            error!("Initialization error: {:?}", e);
+            exception_interval.tick().await;
+        }
+
+        // Initialize Executor
+        let mut executor_v4 = Executor::new(
+            &self.ipset.v4,
+            self.ipset.netmask_v4,
+            self.option.block_duration,
+            self.ipset.flush,
+        );
+        let mut executor_v6 = Executor::new(
+            &self.ipset.v6,
+            self.ipset.netmask_v6,
+            self.option.block_duration,
+            self.ipset.flush,
+        );
+
+        // Get blocked peers and write to ipset
+        loop {
+            let (ipv4, ipv6) = loop {
+                match self.get_blocked_peers().await {
+                    Ok(peers) => break peers,
+                    Err(e) => {
+                        error!("Error querying blocked peers: {:?}", e);
+                        exception_interval.tick().await;
+                    }
+                }
+            };
+            debug!("BLOCKED IPV4 PEERS: {:?}", ipv4);
+            debug!("BLOCKED IPV6 PEERS: {:?}", ipv6);
+
+            // Update ipset
+            executor_v4
+                .update(&ipv4)
+                .unwrap_or_else(|_| error!("Error updating IPSet [{}]!", self.ipset.v4));
+            executor_v6
+                .update(&ipv6)
+                .unwrap_or_else(|_| error!("Error updating IPSet [{}]!", self.ipset.v6));
+
+            interval.tick().await;
+        }
+    }
+
+    async fn initialize(&mut self) -> Result<()> {
+        self.client = Some(Client::connect(&self.url, self.secret.as_deref()).await?);
+
+        let cache = self.cache.clone();
+        let disconnect_latency = self.option.peer_disconnect_latency;
+        let snapshot_timeout = self.option.peer_snapshot_timeout;
+
+        let mut interval = interval(Duration::from_secs(self.option.interval as u64));
+
+        // Spawn a task to clean the cache periodically
+        tokio::spawn(async move {
+            loop {
+                interval.tick().await;
+                cache
+                    .lock()
+                    .unwrap()
+                    .clean(disconnect_latency, snapshot_timeout);
+            }
+        });
+        Ok(())
     }
 
     /// Get the set of blocked peers for all active BitTorrent tasks,
     /// separated by IPv4 and IPv6
-    pub async fn get_blocked_peers(&self) -> Result<(HashSet<IpAddr>, HashSet<IpAddr>)> {
+    async fn get_blocked_peers(&self) -> Result<(HashSet<IpAddr>, HashSet<IpAddr>)> {
+        debug_assert!(self.client.is_some());
+
         let tasks = self.get_active_bittorrent_tasks().await?;
         let mut ipv4 = HashSet::new();
         let mut ipv6 = HashSet::new();
         for task in tasks {
             self.client
+                .as_ref()
+                .unwrap()
                 .get_peers(&task.gid)
                 .await?
                 .into_iter()
@@ -156,9 +246,6 @@ impl Blocker {
                 })
         }
 
-        // Clean the cache on very invocation
-        self.clean_cache();
-
         Ok((ipv4, ipv6))
     }
 
@@ -166,6 +253,8 @@ impl Blocker {
     async fn get_active_bittorrent_tasks(&self) -> Result<Vec<TaskStatus>> {
         Ok(self
             .client
+            .as_ref()
+            .unwrap()
             .tell_active()
             .await?
             .iter()
@@ -176,7 +265,7 @@ impl Blocker {
 
     /// Check if the peer is already blocked
     fn match_already_blocked(&self, ip: IpAddr) -> BlockStatus {
-        if let Some((status, t)) = self.cache.borrow().blocklist.get(&ip) {
+        if let Some((status, t)) = self.cache.lock().unwrap().blocklist.get(&ip) {
             if timestamp() - t < self.option.peer_disconnect_latency as u64 {
                 let s = match status {
                     BlockStatus::EmptyPeerId => "EmptyPeerId",
@@ -203,7 +292,7 @@ impl Blocker {
 
     /// Check if the peer should be blocked based on the peer ID
     fn match_peer_id_block(&self, peer_id: &str) -> BlockStatus {
-        match match_rule(peer_id, &self.rule.peer_id_block_rules) {
+        match match_rule(peer_id, &self.rule.peer_id_rules) {
             true => BlockStatus::BlockByPeerId(peer_id.get(..8).unwrap_or("TOOSHORT").to_string()),
             false => BlockStatus::Unblocked,
         }
@@ -225,7 +314,7 @@ impl Blocker {
             peer.bitfield,
             peer.percentage * 100.0
         );
-        if let Some((snapshots, _)) = self.cache.borrow().peer_snapshots.get(&ip) {
+        if let Some((snapshots, _)) = self.cache.lock().unwrap().peer_snapshots.get(&ip) {
             if let Some(last) = snapshots.back() {
                 // Check if the peer is rewinding
                 let rewind_pieces = rewind_pieces(&last.bitfield, &peer.bitfield);
@@ -258,7 +347,7 @@ impl Blocker {
 
     /// Check if the peer should be blocked based on the download completion to zero upload speed latency
     fn match_completed_latency(&self, ip: IpAddr, peer: &PeerSnapshot) -> BlockStatus {
-        if let Some((snapshot, _)) = self.cache.borrow().peer_snapshots.get(&ip) {
+        if let Some((snapshot, _)) = self.cache.lock().unwrap().peer_snapshots.get(&ip) {
             if peer.percentage == 1.0 && !snapshot.is_empty() {
                 let latency = match peer.upload_speed {
                     0 => snapshot
@@ -285,7 +374,7 @@ impl Blocker {
         peer: &PeerSnapshot,
         task: &TaskStatus,
     ) -> BlockStatus {
-        if let Some((snapshots, _)) = self.cache.borrow().peer_snapshots.get(&ip) {
+        if let Some((snapshots, _)) = self.cache.lock().unwrap().peer_snapshots.get(&ip) {
             if snapshots.len() == self.option.snapshots_count as usize {
                 let estimated_upload: u64 =
                     snapshots.iter().map(|peer| peer.upload_speed).sum::<u64>()
@@ -320,14 +409,16 @@ impl Blocker {
 
     fn register_block(&self, ip: IpAddr, status: &BlockStatus) {
         self.cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .blocklist
             .insert(ip, (status.clone(), timestamp()));
     }
 
     fn take_snapshot(&self, ip: IpAddr, peer: &PeerSnapshot, timestamp: u64) {
         self.cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .peer_snapshots
             .entry(ip)
             .and_modify(|(snapshots, t)| {
@@ -343,38 +434,32 @@ impl Blocker {
             })
             .or_insert_with(|| (VecDeque::from([peer.clone()]), timestamp));
     }
+}
 
-    fn clean_cache(&self) {
-        self.clean_blocklist();
-        self.clean_peer_snapshots();
-        debug!(
-            "BLOCKLIST: {}, {:?}",
-            self.cache.borrow().blocklist.len(),
-            self.cache.borrow().blocklist
-        );
+impl Cache {
+    pub(super) fn empty() -> Self {
+        Cache {
+            blocklist: HashMap::new(),
+            peer_snapshots: HashMap::new(),
+        }
+    }
+
+    pub(super) fn clean(&mut self, disconnect_latency: u32, snapshot_timeout: u32) {
+        let now = timestamp();
+        self.blocklist
+            .retain(|_, (_, t)| now - *t < disconnect_latency as u64);
+        debug!("BLOCKLIST: {}, {:?}", self.blocklist.len(), self.blocklist);
+
+        self.peer_snapshots
+            .retain(|_, (_, t)| now - *t < snapshot_timeout as u64);
         debug!(
             "PEERSNAPSHOTS: {}, {:?}",
-            self.cache.borrow().peer_snapshots.len(),
-            self.cache.borrow().peer_snapshots
+            self.peer_snapshots.len(),
+            self.peer_snapshots
         );
     }
-
-    fn clean_blocklist(&self) {
-        let now = timestamp();
-        self.cache
-            .borrow_mut()
-            .blocklist
-            .retain(|_, (_, t)| now - *t < self.option.peer_disconnect_latency as u64);
-    }
-
-    fn clean_peer_snapshots(&self) {
-        let now = timestamp();
-        self.cache
-            .borrow_mut()
-            .peer_snapshots
-            .retain(|_, (_, t)| now - *t < self.option.peer_snapshot_timeout as u64);
-    }
 }
+
 /// Check if the peer ID matches any of the rules
 fn match_rule(peer_id: &str, rules: &[PeerIdRule]) -> bool {
     rules.iter().any(|rule| match rule.method {

@@ -1,13 +1,11 @@
 use super::{
-    super::{BlockOption, BlockRule, Result},
+    super::{BlockOption, BlockRule, IPSetOption},
+    blocker::Cache,
     Blocker,
 };
 
-use aria2_ws::Client;
+use std::sync::{Arc, Mutex};
 
-use std::rc::Rc;
-
-#[derive(Default)]
 pub struct BlockerBuilder {
     host: String,
     port: u16,
@@ -15,9 +13,40 @@ pub struct BlockerBuilder {
     secret: Option<String>,
     rule: BlockRule,
     option: BlockOption,
+    ipset: IPSetOption,
 }
 
 impl BlockerBuilder {
+    pub fn new() -> Self {
+        Self {
+            host: "localhost".to_string(),
+            port: 6800,
+            secure: false,
+            secret: None,
+            rule: BlockRule::default(),
+            option: BlockOption::default(),
+            ipset: IPSetOption::default(),
+        }
+    }
+
+    pub fn build(self) -> Blocker {
+        let url = format!(
+            "{}://{}:{}/jsonrpc",
+            if self.secure { "wss" } else { "ws" },
+            self.host,
+            self.port
+        );
+        Blocker {
+            url,
+            secret: self.secret,
+            client: None,
+            rule: self.rule,
+            option: self.option,
+            ipset: self.ipset,
+            cache: Arc::new(Mutex::new(Cache::empty())),
+        }
+    }
+
     pub fn host(mut self, host: &str) -> Self {
         self.host = host.to_string();
         self
@@ -42,18 +71,8 @@ impl BlockerBuilder {
         self.option = option.clone();
         self
     }
-    pub async fn build(self) -> Result<Blocker> {
-        let url = format!(
-            "{}://{}:{}/jsonrpc",
-            if self.secure { "wss" } else { "ws" },
-            self.host,
-            self.port
-        );
-        Ok(Blocker {
-            client: Client::connect(&url, self.secret.as_deref()).await?,
-            rule: self.rule,
-            option: self.option,
-            cache: Rc::default(),
-        })
+    pub fn ipset(mut self, ipset: &IPSetOption) -> Self {
+        self.ipset = ipset.clone();
+        self
     }
 }

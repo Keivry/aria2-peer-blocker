@@ -5,8 +5,8 @@
 ##     - timestamp: whether to add timestamp to log output.
 #
 # [log]
-# level = "info"
-# timestamp = false
+# level = "warn"
+# timestamp = true
 
 ## [aria2_rpc]
 ##     - host: aria2 RPC server host.
@@ -14,9 +14,9 @@
 ##     - secure: whether aria2 RPC transport will be encrypted by ssl/tls.
 ##     - secret: aria2 RPC secret authorization token.
 #
-[aria2_rpc]
-host = "localhost"
-port = 6800
+# [aria2_rpc]
+# host = "localhost"
+# port = 6800
 # secure = false
 # secret = ""
 
@@ -36,32 +36,32 @@ port = 6800
 ##          - method: matching method, available values are "STARTS_WITH" and "CONTAINS".
 ##          - content: matching content.
 #
-[rules]
+# [rules]
 # max_rewind_pieces = 5
 # max_rewind_pecent = 0.05
 # max_upload_difference = 0.20
 # max_latency_completed_to_zero = 30
 #
 ## https://docs.pbh-btn.com/docs/module/peer-id/
-peer_id_rules = [
-    { method = "STARTS_WITH", content = "-xl" },
-    { method = "STARTS_WITH", content = "-hp" },
-    { method = "STARTS_WITH", content = "-xm" },
-    { method = "STARTS_WITH", content = "-dt" },
-    { method = "STARTS_WITH", content = "-gt0002" },
-    { method = "STARTS_WITH", content = "-gt0003" },
-    { method = "STARTS_WITH", content = "-sd" },
-    { method = "STARTS_WITH", content = "-xf" },
-    { method = "STARTS_WITH", content = "-qd" },
-    { method = "STARTS_WITH", content = "-bn" },
-    { method = "STARTS_WITH", content = "-dl" },
-    { method = "STARTS_WITH", content = "-ts" },
-    { method = "STARTS_WITH", content = "-fg" },
-    { method = "STARTS_WITH", content = "-tt" },
-    { method = "STARTS_WITH", content = "-nx" },
-    { method = "CONTAINS", content = "-rn0.0.0" },
-    { method = "CONTAINS", content = "cacao" },
-]
+# peer_id_rules = [
+#     { method = "STARTS_WITH", content = "-xl" },
+#     { method = "STARTS_WITH", content = "-hp" },
+#     { method = "STARTS_WITH", content = "-xm" },
+#     { method = "STARTS_WITH", content = "-dt" },
+#     { method = "STARTS_WITH", content = "-gt0002" },
+#     { method = "STARTS_WITH", content = "-gt0003" },
+#     { method = "STARTS_WITH", content = "-sd" },
+#     { method = "STARTS_WITH", content = "-xf" },
+#     { method = "STARTS_WITH", content = "-qd" },
+#     { method = "STARTS_WITH", content = "-bn" },
+#     { method = "STARTS_WITH", content = "-dl" },
+#     { method = "STARTS_WITH", content = "-ts" },
+#     { method = "STARTS_WITH", content = "-fg" },
+#     { method = "STARTS_WITH", content = "-tt" },
+#     { method = "STARTS_WITH", content = "-nx" },
+#     { method = "CONTAINS", content = "-rn0.0.0" },
+#     { method = "CONTAINS", content = "cacao" },
+# ]
 
 ## [option]
 ##     - snapshots_count: number of peer information snapshots to keep for each peer.
@@ -86,9 +86,9 @@ peer_id_rules = [
 ##     v6: ipset name for IPv6.
 ##     netmask_v6: netmask length for IPv6.
 #
-[ipset]
+# [ipset]
 # flush = true
-v4 = "blockIP"
+# v4 = "blockIP"
 # netmask_v4 = 32
-v6 = "blockIPv6"
+# v6 = "blockIPv6"
 # netmask_v6 = 64

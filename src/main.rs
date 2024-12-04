@@ -26,7 +26,6 @@ async fn main() {
         Some(path) => Config::load(&path).expect("Failed to load configuration file"),
         None => Config::default(),
     };
-    println!("LOADED CONFIGURATION: {:?}", &config);
     // Initialize logger
     init_logger(
         config.log.timestamp,

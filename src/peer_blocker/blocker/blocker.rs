@@ -11,14 +11,16 @@ use super::{
 };
 
 use aria2_ws::{response::Status as TaskStatus, Client};
+use dashmap::DashMap;
 use log::{debug, error, info};
+use parking_lot::Mutex;
 use percent_encoding::percent_decode;
 use tokio::time::interval;
 
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashSet, VecDeque},
     net::IpAddr,
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::Duration,
 };
 
@@ -69,12 +71,12 @@ pub(super) struct Cache {
     /// The blocklist stores the blocked IP, block status and the timestamp when they were blocked
     /// Used for checking if the peer is already blocked before aria2 disconnects it
     /// The IP addresses will be removed from the blocklist after the peer_disconnect_latency duration
-    blocklist: HashMap<IpAddr, (BlockStatus, u64)>,
+    blocklist: DashMap<IpAddr, (BlockStatus, u64)>,
     /// The peer_snapshots stores the snapshots of the peer's download progress,
     /// and the timestamp when the last snapshot was taken
     /// Used for checking if the peer is rewinding or uploading too much data
     /// The snapshots will be removed after the peer_snapshot_timeout duration
-    peer_snapshots: HashMap<IpAddr, (VecDeque<PeerSnapshot>, u64)>,
+    peer_snapshots: DashMap<IpAddr, (VecDeque<PeerSnapshot>, u64)>,
 }
 
 impl Blocker {
@@ -146,10 +148,7 @@ impl Blocker {
         tokio::spawn(async move {
             loop {
                 interval.tick().await;
-                cache
-                    .lock()
-                    .unwrap()
-                    .clean(disconnect_latency, snapshot_timeout);
+                cache.lock().clean(disconnect_latency, snapshot_timeout);
             }
         });
         Ok(())
@@ -265,8 +264,9 @@ impl Blocker {
 
     /// Check if the peer is already blocked
     fn match_already_blocked(&self, ip: IpAddr) -> BlockStatus {
-        if let Some((status, t)) = self.cache.lock().unwrap().blocklist.get(&ip) {
-            if timestamp() - t < self.option.peer_disconnect_latency as u64 {
+        if let Some(entry) = self.cache.lock().blocklist.get(&ip) {
+            let (status, t) = entry.value();
+            if timestamp() - *t < self.option.peer_disconnect_latency as u64 {
                 let s = match status {
                     BlockStatus::EmptyPeerId => "EmptyPeerId",
                     BlockStatus::IllegalBitfield => "EmptyBitfield",
@@ -314,7 +314,8 @@ impl Blocker {
             peer.bitfield,
             peer.percentage * 100.0
         );
-        if let Some((snapshots, _)) = self.cache.lock().unwrap().peer_snapshots.get(&ip) {
+        if let Some(entry) = self.cache.lock().peer_snapshots.get(&ip) {
+            let (snapshots, _) = entry.value();
             if let Some(last) = snapshots.back() {
                 // Check if the peer is rewinding
                 let rewind_pieces = rewind_pieces(&last.bitfield, &peer.bitfield);
@@ -347,14 +348,15 @@ impl Blocker {
 
     /// Check if the peer should be blocked based on the download completion to zero upload speed latency
     fn match_completed_latency(&self, ip: IpAddr, peer: &PeerSnapshot) -> BlockStatus {
-        if let Some((snapshot, _)) = self.cache.lock().unwrap().peer_snapshots.get(&ip) {
-            if peer.percentage == 1.0 && !snapshot.is_empty() {
+        if let Some(entry) = self.cache.lock().peer_snapshots.get(&ip) {
+            let (snapshots, _) = entry.value();
+            if peer.percentage == 1.0 && !snapshots.is_empty() {
                 let latency = match peer.upload_speed {
-                    0 => snapshot
+                    0 => snapshots
                         .iter()
                         .position(|s| s.upload_speed == 0)
-                        .unwrap_or(snapshot.len()),
-                    _ => snapshot.len() + 1,
+                        .unwrap_or(snapshots.len()),
+                    _ => snapshots.len() + 1,
                 } as u32
                     * self.option.interval;
 
@@ -374,7 +376,8 @@ impl Blocker {
         peer: &PeerSnapshot,
         task: &TaskStatus,
     ) -> BlockStatus {
-        if let Some((snapshots, _)) = self.cache.lock().unwrap().peer_snapshots.get(&ip) {
+        if let Some(entry) = self.cache.lock().peer_snapshots.get(&ip) {
+            let (snapshots, _) = entry.value();
             if snapshots.len() == self.option.snapshots_count as usize {
                 let estimated_upload: u64 =
                     snapshots.iter().map(|peer| peer.upload_speed).sum::<u64>()
@@ -410,7 +413,6 @@ impl Blocker {
     fn register_block(&self, ip: IpAddr, status: &BlockStatus) {
         self.cache
             .lock()
-            .unwrap()
             .blocklist
             .insert(ip, (status.clone(), timestamp()));
     }
@@ -418,7 +420,6 @@ impl Blocker {
     fn take_snapshot(&self, ip: IpAddr, peer: &PeerSnapshot, timestamp: u64) {
         self.cache
             .lock()
-            .unwrap()
             .peer_snapshots
             .entry(ip)
             .and_modify(|(snapshots, t)| {
@@ -439,23 +440,25 @@ impl Blocker {
 impl Cache {
     pub(super) fn empty() -> Self {
         Cache {
-            blocklist: HashMap::new(),
-            peer_snapshots: HashMap::new(),
+            blocklist: DashMap::new(),
+            peer_snapshots: DashMap::new(),
         }
     }
 
     pub(super) fn clean(&mut self, disconnect_latency: u32, snapshot_timeout: u32) {
         let now = timestamp();
-        self.blocklist
-            .retain(|_, (_, t)| now - *t < disconnect_latency as u64);
-        debug!("BLOCKLIST: {}, {:?}", self.blocklist.len(), self.blocklist);
+        let disconnect_timeout = disconnect_latency as u64;
+        let snapshot_timeout = snapshot_timeout as u64;
 
+        self.blocklist
+            .retain(|_, (_, t)| now - *t < disconnect_timeout);
         self.peer_snapshots
-            .retain(|_, (_, t)| now - *t < snapshot_timeout as u64);
+            .retain(|_, (_, t)| now - *t < snapshot_timeout);
+
         debug!(
-            "PEERSNAPSHOTS: {}, {:?}",
-            self.peer_snapshots.len(),
-            self.peer_snapshots
+            "Cache stats - Blocklist: {}, Snapshots: {}",
+            self.blocklist.len(),
+            self.peer_snapshots.len()
         );
     }
 }

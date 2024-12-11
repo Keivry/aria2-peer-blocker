@@ -4,7 +4,9 @@ use super::{
     Blocker,
 };
 
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+
+use std::sync::Arc;
 
 pub struct BlockerBuilder {
     host: String,

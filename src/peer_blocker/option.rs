@@ -1,5 +1,7 @@
 use serde::Deserialize;
 
+use std::time::Duration;
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct BlockOption {
     /// The number of snapshots to keep for each peer
@@ -8,11 +10,11 @@ pub struct BlockOption {
 
     /// The interval between each snapshot, in seconds
     #[serde(default = "BlockOption::default_interval")]
-    pub interval: u32,
+    pub interval: Duration,
 
     /// The interval delay when the peer is in exception state
     #[serde(default = "BlockOption::default_exception_interval")]
-    pub exception_interval: u32,
+    pub exception_interval: Duration,
 
     /// Seconds to keep the peer snapshots
     #[serde(default = "BlockOption::default_peer_snapshot_timeout")]
@@ -24,7 +26,7 @@ pub struct BlockOption {
 
     /// Seconds to block the peer
     #[serde(default = "BlockOption::default_block_duration")]
-    pub block_duration: u32,
+    pub block_duration: Duration,
 }
 
 impl BlockOption {
@@ -34,13 +36,13 @@ impl BlockOption {
     }
 
     #[inline]
-    fn default_interval() -> u32 {
-        2
+    fn default_interval() -> Duration {
+        Duration::from_secs(2)
     }
 
     #[inline]
-    fn default_exception_interval() -> u32 {
-        90
+    fn default_exception_interval() -> Duration {
+        Duration::from_secs(90)
     }
 
     #[inline]
@@ -54,8 +56,8 @@ impl BlockOption {
     }
 
     #[inline]
-    fn default_block_duration() -> u32 {
-        43200
+    fn default_block_duration() -> Duration {
+        Duration::from_secs(43200)
     }
 }
 

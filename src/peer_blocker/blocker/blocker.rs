@@ -10,15 +10,21 @@ use super::{
     executor::Executor,
 };
 
-use aria2_ws::{response::Status as TaskStatus, Client};
+use aria2_ws::{
+    response::{Peer, Status as TaskStatus},
+    Client,
+};
 use dashmap::DashMap;
-use log::{debug, error, info};
-use parking_lot::Mutex;
+use log::{debug, error, info, warn};
 use percent_encoding::percent_decode;
-use tokio::time::interval;
+use tokio::{
+    sync::RwLock,
+    time::{interval, sleep, timeout},
+};
 
 use std::{
     collections::{HashSet, VecDeque},
+    future::Future,
     net::IpAddr,
     sync::Arc,
     time::Duration,
@@ -30,8 +36,14 @@ pub struct Blocker {
     /// The secret token for the aria
     pub(super) secret: Option<String>,
 
+    /// Rpc timeout in seconds
+    pub(super) timeout: Duration,
+
+    /// Rpc request max retries
+    pub(super) max_retries: u32,
+
     /// The websocket rpc client for interacting with the aria2 server
-    pub(super) client: Option<Client>,
+    pub(super) client: Arc<RwLock<Option<Client>>>,
 
     /// The rules for blocking peers
     pub(super) rule: BlockRule,
@@ -43,7 +55,7 @@ pub struct Blocker {
     pub(super) ipset: IPSetOption,
 
     /// The cache for storing the blocklist and peer snapshots
-    pub(super) cache: Arc<Mutex<Cache>>,
+    pub(super) cache: Arc<RwLock<Cache>>,
 }
 
 /// The status of a peer being blocked
@@ -72,6 +84,7 @@ pub(super) struct Cache {
     /// Used for checking if the peer is already blocked before aria2 disconnects it
     /// The IP addresses will be removed from the blocklist after the peer_disconnect_latency duration
     blocklist: DashMap<IpAddr, (BlockStatus, u64)>,
+
     /// The peer_snapshots stores the snapshots of the peer's download progress,
     /// and the timestamp when the last snapshot was taken
     /// Used for checking if the peer is rewinding or uploading too much data
@@ -85,173 +98,274 @@ impl Blocker {
     }
 
     pub async fn start(&mut self) {
-        let mut exception_interval =
-            interval(Duration::from_secs(self.option.exception_interval as u64));
-        let mut interval = interval(Duration::from_secs(self.option.interval as u64));
-
         // Initialize Blocker
         while let Err(e) = self.initialize().await {
             error!("Initialization error: {:?}", e);
-            exception_interval.tick().await;
+            sleep(self.option.exception_interval).await;
         }
 
         // Initialize Executor
         let mut executor_v4 = Executor::new(
             &self.ipset.v4,
             self.ipset.netmask_v4,
-            self.option.block_duration,
+            self.option.block_duration.as_secs() as u32,
             self.ipset.flush,
         );
         let mut executor_v6 = Executor::new(
             &self.ipset.v6,
             self.ipset.netmask_v6,
-            self.option.block_duration,
+            self.option.block_duration.as_secs() as u32,
             self.ipset.flush,
         );
 
         // Get blocked peers and write to ipset
         loop {
-            let (ipv4, ipv6) = loop {
-                match self.get_blocked_peers().await {
-                    Ok(peers) => break peers,
-                    Err(e) => {
-                        error!("Error querying blocked peers: {:?}", e);
-                        exception_interval.tick().await;
-                    }
+            match self.retry(|| self.get_blocked_peers()).await {
+                Ok((ipv4, ipv6)) => {
+                    debug!("BLOCKED IPV4 PEERS: {:?}", ipv4);
+                    debug!("BLOCKED IPV6 PEERS: {:?}", ipv6);
+
+                    // Update ipset
+                    executor_v4
+                        .update(&ipv4)
+                        .unwrap_or_else(|_| error!("Error updating IPSet [{}]!", self.ipset.v4));
+                    executor_v6
+                        .update(&ipv6)
+                        .unwrap_or_else(|_| error!("Error updating IPSet [{}]!", self.ipset.v6));
+
+                    sleep(self.option.interval).await;
                 }
-            };
-            debug!("BLOCKED IPV4 PEERS: {:?}", ipv4);
-            debug!("BLOCKED IPV6 PEERS: {:?}", ipv6);
-
-            // Update ipset
-            executor_v4
-                .update(&ipv4)
-                .unwrap_or_else(|_| error!("Error updating IPSet [{}]!", self.ipset.v4));
-            executor_v6
-                .update(&ipv6)
-                .unwrap_or_else(|_| error!("Error updating IPSet [{}]!", self.ipset.v6));
-
-            interval.tick().await;
+                Err(e) => {
+                    warn!("Error getting blocked peers: {:?}", e);
+                    sleep(self.option.exception_interval).await;
+                }
+            }
         }
     }
 
+    /// Initialize the Blocker and start the cache cleaning task
     async fn initialize(&mut self) -> Result<()> {
-        self.client = Some(Client::connect(&self.url, self.secret.as_deref()).await?);
+        self.ensure_connected().await;
 
         let cache = self.cache.clone();
         let disconnect_latency = self.option.peer_disconnect_latency;
         let snapshot_timeout = self.option.peer_snapshot_timeout;
 
-        let mut interval = interval(Duration::from_secs(self.option.interval as u64));
-
         // Spawn a task to clean the cache periodically
+        let mut interval = interval(self.option.interval);
         tokio::spawn(async move {
             loop {
                 interval.tick().await;
-                cache.lock().clean(disconnect_latency, snapshot_timeout);
+                cache
+                    .write()
+                    .await
+                    .clean(disconnect_latency, snapshot_timeout);
             }
         });
         Ok(())
     }
 
+    /// Ensure the client is connected to the Aria2 RPC server
+    async fn ensure_connected(&self) {
+        if !self.is_connected().await {
+            self.reconnect().await;
+        }
+    }
+
+    /// Check if the client is connected to the Aria2 RPC server
+    async fn is_connected(&self) -> bool {
+        if let Some(client) = self.client.read().await.as_ref() {
+            if let Ok(Ok(_)) = timeout(self.timeout, client.get_version()).await {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Reconnect to the Aria2 RPC server
+    async fn reconnect(&self) {
+        loop {
+            match timeout(
+                self.timeout,
+                Client::connect(&self.url, self.secret.as_deref()),
+            )
+            .await
+            {
+                Ok(Ok(client)) => {
+                    self.client.write().await.replace(client);
+                    if self.is_connected().await {
+                        info!("Connected to Aria2 RPC [{}]", self.url);
+                        break;
+                    } else {
+                        error!(
+                            "Connected to Aria2 RPC [{}], but checking failed.",
+                            self.url
+                        );
+                    }
+                }
+                Ok(Err(e)) => {
+                    error!("Error connecting to Aria2 RPC: {:?}", e);
+                }
+                Err(e) => {
+                    error!("Timeout connecting to Aria2 RPC: {:?}", e);
+                }
+            }
+            sleep(self.option.exception_interval).await;
+        }
+    }
+
+    /// Retry the action with a timeout and a maximum number of retries
+    async fn retry<F, T, V>(&self, action: F) -> Result<V>
+    where
+        F: Fn() -> T,
+        T: Future<Output = Result<V>>,
+    {
+        let mut retries = 0;
+        while retries < self.max_retries {
+            match timeout(self.timeout, action()).await {
+                Ok(result) => return result,
+                Err(_) => warn!("Timeout occurred during action, retrying..."),
+            }
+            sleep(self.option.exception_interval).await;
+            // ensure connection is established before retry
+            self.ensure_connected().await;
+
+            retries += 1;
+        }
+        Err("Max retries exceeded during action".into())
+    }
+
     /// Get the set of blocked peers for all active BitTorrent tasks,
     /// separated by IPv4 and IPv6
     async fn get_blocked_peers(&self) -> Result<(HashSet<IpAddr>, HashSet<IpAddr>)> {
-        debug_assert!(self.client.is_some());
-
         let tasks = self.get_active_bittorrent_tasks().await?;
         let mut ipv4 = HashSet::new();
         let mut ipv6 = HashSet::new();
         for task in tasks {
-            self.client
-                .as_ref()
-                .unwrap()
-                .get_peers(&task.gid)
-                .await?
-                .into_iter()
-                .for_each(|peer| {
-                    let ip = peer.ip.parse().unwrap();
-                    let peer_id = percent_decode(peer.peer_id.as_bytes())
-                        .decode_utf8_lossy()
-                        .to_lowercase();
-                    let peer_snapshot = PeerSnapshot {
-                        upload_speed: peer.upload_speed,
-                        percentage: percentage(&peer.bitfield, task.num_pieces),
-                        bitfield: peer.bitfield,
-                    };
-                    let timestamp = timestamp();
-
-                    let block_status =
-                        if let BlockStatus::AlreadyBlocked(s) = self.match_already_blocked(ip) {
-                            // log AlreadyBlocked in debug level
-                            debug!("BLOCK [{}] FOR [ALREADY BLOCKED: <{}>]", padding(ip), s);
-                            BlockStatus::AlreadyBlocked(s)
-                        } else if self.match_empty_peer_id(&peer_id) == BlockStatus::EmptyPeerId {
-                            info!("BLOCK [{}] FOR [EMPTY PEER ID]", padding(ip));
-                            BlockStatus::EmptyPeerId
-                        } else if let BlockStatus::BlockByPeerId(peer_id_prefix) =
-                            self.match_peer_id_block(&peer_id)
-                        {
-                            info!("BLOCK [{}] FOR [PEER ID: {}]", padding(ip), peer_id_prefix);
-                            BlockStatus::BlockByPeerId(peer_id_prefix)
-                        } else if self.match_illegal_bitfield(&peer_snapshot)
-                            == BlockStatus::IllegalBitfield
-                        {
-                            info!("BLOCK [{}] FOR [EMPTY BITFIELD]", padding(ip));
-                            BlockStatus::IllegalBitfield
-                        } else if let BlockStatus::BlockByRewind(pieces, percent) =
-                            self.match_rewind_block(ip, &peer_snapshot)
-                        {
-                            info!(
-                                "BLOCK [{}] FOR [REWIND PIECES: {}] [REWIND PERCENTAGE: {:.2}%]",
-                                padding(ip),
-                                pieces,
-                                percent * 100.0
-                            );
-                            BlockStatus::BlockByRewind(pieces, percent)
-                        } else if let BlockStatus::BlockByCompletedLatency(latency) =
-                            self.match_completed_latency(ip, &peer_snapshot)
-                        {
-                            info!(
-                                "BLOCK [{}] FOR [COMPLETED LATENCY: {}]",
-                                padding(ip),
-                                latency
-                            );
-                            BlockStatus::BlockByCompletedLatency(latency)
-                        } else if let BlockStatus::BlockByUploadDifference(percent) =
-                            self.match_upload_data_block(ip, &peer_snapshot, &task)
-                        {
-                            info!(
-                                "BLOCK [{}] FOR [UPLOAD DIFFERENCE: {:.2}%]",
-                                padding(ip),
-                                percent * 100.0
-                            );
-                            BlockStatus::BlockByUploadDifference(percent)
-                        } else {
-                            BlockStatus::Unblocked
-                        };
-
-                    match block_status {
-                        BlockStatus::AlreadyBlocked(_) => (),
-                        BlockStatus::Unblocked => self.take_snapshot(ip, &peer_snapshot, timestamp),
-                        _ => {
-                            match ip {
-                                IpAddr::V4(_) => ipv4.insert(ip),
-                                IpAddr::V6(_) => ipv6.insert(ip),
-                            };
-                            self.register_block(ip, &block_status);
-                        }
-                    }
-                })
+            self.process_task(&task, &mut ipv4, &mut ipv6).await?;
         }
-
         Ok((ipv4, ipv6))
+    }
+
+    /// Process a single BitTorrent task and update the sets of blocked peers
+    async fn process_task(
+        &self,
+        task: &TaskStatus,
+        ipv4: &mut HashSet<IpAddr>,
+        ipv6: &mut HashSet<IpAddr>,
+    ) -> Result<()> {
+        for peer in self
+            .client
+            .read()
+            .await
+            .as_ref()
+            .unwrap()
+            .get_peers(&task.gid)
+            .await?
+        {
+            self.process_peer(peer, task, ipv4, ipv6).await?;
+        }
+        Ok(())
+    }
+
+    /// Process a single peer and update the sets of blocked peers
+    async fn process_peer(
+        &self,
+        peer: Peer,
+        task: &TaskStatus,
+        ipv4: &mut HashSet<IpAddr>,
+        ipv6: &mut HashSet<IpAddr>,
+    ) -> Result<()> {
+        let ip = peer.ip.parse().unwrap();
+        let peer_id = percent_decode(peer.peer_id.as_bytes())
+            .decode_utf8_lossy()
+            .to_lowercase();
+        let peer_snapshot = PeerSnapshot {
+            upload_speed: peer.upload_speed,
+            percentage: percentage(&peer.bitfield, task.num_pieces),
+            bitfield: peer.bitfield,
+        };
+        let timestamp = timestamp();
+
+        let block_status = self
+            .determine_block_status(ip, &peer_id, &peer_snapshot, task)
+            .await;
+
+        match block_status {
+            BlockStatus::AlreadyBlocked(_) => (),
+            BlockStatus::Unblocked => self.take_snapshot(ip, &peer_snapshot, timestamp).await,
+            _ => {
+                match ip {
+                    IpAddr::V4(_) => ipv4.insert(ip),
+                    IpAddr::V6(_) => ipv6.insert(ip),
+                };
+                self.register_block(ip, &block_status).await;
+            }
+        }
+        Ok(())
+    }
+
+    /// Determine the block status of a peer based on various criteria
+    async fn determine_block_status(
+        &self,
+        ip: IpAddr,
+        peer_id: &str,
+        peer_snapshot: &PeerSnapshot,
+        task: &TaskStatus,
+    ) -> BlockStatus {
+        if let BlockStatus::AlreadyBlocked(s) = self.match_already_blocked(ip).await {
+            // log AlreadyBlocked in debug level
+            debug!("BLOCK [{}] FOR [ALREADY BLOCKED: <{}>]", padding(ip), s);
+            BlockStatus::AlreadyBlocked(s)
+        } else if self.match_empty_peer_id(peer_id) == BlockStatus::EmptyPeerId {
+            info!("BLOCK [{}] FOR [EMPTY PEER ID]", padding(ip));
+            BlockStatus::EmptyPeerId
+        } else if let BlockStatus::BlockByPeerId(peer_id_prefix) = self.match_peer_id_block(peer_id)
+        {
+            info!("BLOCK [{}] FOR [PEER ID: {}]", padding(ip), peer_id_prefix);
+            BlockStatus::BlockByPeerId(peer_id_prefix)
+        } else if self.match_illegal_bitfield(peer_snapshot) == BlockStatus::IllegalBitfield {
+            info!("BLOCK [{}] FOR [EMPTY BITFIELD]", padding(ip));
+            BlockStatus::IllegalBitfield
+        } else if let BlockStatus::BlockByRewind(pieces, percent) =
+            self.match_rewind_block(ip, peer_snapshot).await
+        {
+            info!(
+                "BLOCK [{}] FOR [REWIND PIECES: {}] [REWIND PERCENTAGE: {:.2}%]",
+                padding(ip),
+                pieces,
+                percent * 100.0
+            );
+            BlockStatus::BlockByRewind(pieces, percent)
+        } else if let BlockStatus::BlockByCompletedLatency(latency) =
+            self.match_completed_latency(ip, peer_snapshot).await
+        {
+            info!(
+                "BLOCK [{}] FOR [COMPLETED LATENCY: {}]",
+                padding(ip),
+                latency
+            );
+            BlockStatus::BlockByCompletedLatency(latency)
+        } else if let BlockStatus::BlockByUploadDifference(percent) =
+            self.match_upload_data_block(ip, peer_snapshot, task).await
+        {
+            info!(
+                "BLOCK [{}] FOR [UPLOAD DIFFERENCE: {:.2}%]",
+                padding(ip),
+                percent * 100.0
+            );
+            BlockStatus::BlockByUploadDifference(percent)
+        } else {
+            BlockStatus::Unblocked
+        }
     }
 
     /// Get the list of active BitTorrent tasks
     async fn get_active_bittorrent_tasks(&self) -> Result<Vec<TaskStatus>> {
         Ok(self
             .client
+            .read()
+            .await
             .as_ref()
             .unwrap()
             .tell_active()
@@ -263,8 +377,8 @@ impl Blocker {
     }
 
     /// Check if the peer is already blocked
-    fn match_already_blocked(&self, ip: IpAddr) -> BlockStatus {
-        if let Some(entry) = self.cache.lock().blocklist.get(&ip) {
+    async fn match_already_blocked(&self, ip: IpAddr) -> BlockStatus {
+        if let Some(entry) = self.cache.read().await.blocklist.get(&ip) {
             let (status, t) = entry.value();
             if timestamp() - *t < self.option.peer_disconnect_latency as u64 {
                 let s = match status {
@@ -282,18 +396,18 @@ impl Blocker {
         BlockStatus::Unblocked
     }
 
-    fn match_empty_peer_id(&self, peer_id: &str) -> BlockStatus {
-        // Mark peer_id full of '\0' as empty
-        match peer_id.is_empty() || peer_id == "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0" {
-            true => BlockStatus::EmptyPeerId,
-            false => BlockStatus::Unblocked,
-        }
-    }
-
     /// Check if the peer should be blocked based on the peer ID
     fn match_peer_id_block(&self, peer_id: &str) -> BlockStatus {
         match match_rule(peer_id, &self.rule.peer_id_rules) {
             true => BlockStatus::BlockByPeerId(peer_id.get(..8).unwrap_or("TOOSHORT").to_string()),
+            false => BlockStatus::Unblocked,
+        }
+    }
+
+    fn match_empty_peer_id(&self, peer_id: &str) -> BlockStatus {
+        // Mark peer_id full of '\0' as empty
+        match peer_id.is_empty() || peer_id == "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0" {
+            true => BlockStatus::EmptyPeerId,
             false => BlockStatus::Unblocked,
         }
     }
@@ -307,14 +421,14 @@ impl Blocker {
     }
 
     /// Check if the peer should be blocked based on the rewinded pieces and rewinded percent
-    fn match_rewind_block(&self, ip: IpAddr, peer: &PeerSnapshot) -> BlockStatus {
+    async fn match_rewind_block(&self, ip: IpAddr, peer: &PeerSnapshot) -> BlockStatus {
         debug!(
             "PEER DETAIL: [{}], BITFIELD: [{:.20}], PERCENTAGE: [{:.2}%]",
             ip,
             peer.bitfield,
             peer.percentage * 100.0
         );
-        if let Some(entry) = self.cache.lock().peer_snapshots.get(&ip) {
+        if let Some(entry) = self.cache.read().await.peer_snapshots.get(&ip) {
             let (snapshots, _) = entry.value();
             if let Some(last) = snapshots.back() {
                 // Check if the peer is rewinding
@@ -347,8 +461,8 @@ impl Blocker {
     }
 
     /// Check if the peer should be blocked based on the download completion to zero upload speed latency
-    fn match_completed_latency(&self, ip: IpAddr, peer: &PeerSnapshot) -> BlockStatus {
-        if let Some(entry) = self.cache.lock().peer_snapshots.get(&ip) {
+    async fn match_completed_latency(&self, ip: IpAddr, peer: &PeerSnapshot) -> BlockStatus {
+        if let Some(entry) = self.cache.read().await.peer_snapshots.get(&ip) {
             let (snapshots, _) = entry.value();
             if peer.percentage == 1.0 && !snapshots.is_empty() {
                 let latency = match peer.upload_speed {
@@ -358,7 +472,7 @@ impl Blocker {
                         .unwrap_or(snapshots.len()),
                     _ => snapshots.len() + 1,
                 } as u32
-                    * self.option.interval;
+                    * self.option.interval.as_secs() as u32;
 
                 debug!("PEER DETAIL: [{}], COMPLETED LATENCY: [{}]", ip, latency);
                 if latency > self.rule.max_latency_completed_to_zero {
@@ -370,18 +484,18 @@ impl Blocker {
     }
 
     /// Check if the peer should be blocked based on the estimated upload size
-    fn match_upload_data_block(
+    async fn match_upload_data_block(
         &self,
         ip: IpAddr,
         peer: &PeerSnapshot,
         task: &TaskStatus,
     ) -> BlockStatus {
-        if let Some(entry) = self.cache.lock().peer_snapshots.get(&ip) {
+        if let Some(entry) = self.cache.read().await.peer_snapshots.get(&ip) {
             let (snapshots, _) = entry.value();
             if snapshots.len() == self.option.snapshots_count as usize {
                 let estimated_upload: u64 =
                     snapshots.iter().map(|peer| peer.upload_speed).sum::<u64>()
-                        * self.option.interval as u64;
+                        * self.option.interval.as_secs();
                 debug!(
                     "PEER DETAIL: [{}], ESTIMATED UPLOAD: [{}]",
                     ip, estimated_upload
@@ -410,16 +524,20 @@ impl Blocker {
         BlockStatus::Unblocked
     }
 
-    fn register_block(&self, ip: IpAddr, status: &BlockStatus) {
+    /// Register the IP address to the blocklist
+    async fn register_block(&self, ip: IpAddr, status: &BlockStatus) {
         self.cache
-            .lock()
+            .write()
+            .await
             .blocklist
             .insert(ip, (status.clone(), timestamp()));
     }
 
-    fn take_snapshot(&self, ip: IpAddr, peer: &PeerSnapshot, timestamp: u64) {
+    /// Store the snapshot of the peer's download progress
+    async fn take_snapshot(&self, ip: IpAddr, peer: &PeerSnapshot, timestamp: u64) {
         self.cache
-            .lock()
+            .write()
+            .await
             .peer_snapshots
             .entry(ip)
             .and_modify(|(snapshots, t)| {
@@ -445,6 +563,7 @@ impl Cache {
         }
     }
 
+    /// Removing the expired blocklist and peer snapshots
     pub(super) fn clean(&mut self, disconnect_latency: u32, snapshot_timeout: u32) {
         let now = timestamp();
         let disconnect_timeout = disconnect_latency as u64;

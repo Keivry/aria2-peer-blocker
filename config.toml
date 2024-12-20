@@ -13,12 +13,16 @@
 ##     - port: aria2 RPC server port.
 ##     - secure: whether aria2 RPC transport will be encrypted by ssl/tls.
 ##     - secret: aria2 RPC secret authorization token.
+##     - timeout: time in seconds to wait for a response from the aria2 RPC server.
+##     - max_retries: number of retries when rpc request fails.
 #
 # [aria2_rpc]
 # host = "localhost"
 # port = 6800
 # secure = false
 # secret = ""
+# timeout = 5
+# max_retries = 3
 
 ## [rules]
 ##     - max_rewind_pieces & max_rewind_percent:

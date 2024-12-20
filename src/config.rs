@@ -48,6 +48,11 @@ pub struct RpcConfig {
     /// Aria2 RPC secret, None if not used
     #[serde(default)]
     pub secret: Option<String>,
+    /// Aria2 RPC timeout
+    #[serde(default = "RpcConfig::default_timeout")]
+    pub timeout: u32,
+    #[serde(default = "RpcConfig::default_max_retries")]
+    pub max_retries: u32,
 }
 
 impl Config {
@@ -70,9 +75,20 @@ impl RpcConfig {
     fn default_host() -> String {
         "localhost".to_string()
     }
+
     #[inline]
     fn default_port() -> u16 {
         6800
+    }
+
+    #[inline]
+    fn default_timeout() -> u32 {
+        5
+    }
+
+    #[inline]
+    fn default_max_retries() -> u32 {
+        3
     }
 }
 
@@ -92,6 +108,8 @@ impl Default for RpcConfig {
             port: RpcConfig::default_port(),
             secure: false,
             secret: None,
+            timeout: RpcConfig::default_timeout(),
+            max_retries: RpcConfig::default_max_retries(),
         }
     }
 }

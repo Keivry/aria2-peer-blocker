@@ -4,15 +4,17 @@ use super::{
     Blocker,
 };
 
-use parking_lot::Mutex;
+use tokio::sync::RwLock;
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 pub struct BlockerBuilder {
     host: String,
     port: u16,
     secure: bool,
     secret: Option<String>,
+    timeout: u32,
+    max_retries: u32,
     rule: BlockRule,
     option: BlockOption,
     ipset: IPSetOption,
@@ -25,6 +27,8 @@ impl BlockerBuilder {
             port: 6800,
             secure: false,
             secret: None,
+            timeout: 60,
+            max_retries: 3,
             rule: BlockRule::default(),
             option: BlockOption::default(),
             ipset: IPSetOption::default(),
@@ -41,11 +45,13 @@ impl BlockerBuilder {
         Blocker {
             url,
             secret: self.secret,
-            client: None,
+            timeout: Duration::from_secs(self.timeout as u64),
+            max_retries: self.max_retries,
+            client: Arc::new(RwLock::new(None)),
             rule: self.rule,
             option: self.option,
             ipset: self.ipset,
-            cache: Arc::new(Mutex::new(Cache::empty())),
+            cache: Arc::new(RwLock::new(Cache::empty())),
         }
     }
 
@@ -63,6 +69,14 @@ impl BlockerBuilder {
     }
     pub fn secret(mut self, secret: &Option<String>) -> Self {
         self.secret = secret.clone();
+        self
+    }
+    pub fn timeout(mut self, timeout: u32) -> Self {
+        self.timeout = timeout;
+        self
+    }
+    pub fn max_retries(mut self, max_retries: u32) -> Self {
+        self.max_retries = max_retries;
         self
     }
     pub fn rule(mut self, rule: &BlockRule) -> Self {

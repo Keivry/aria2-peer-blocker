@@ -39,6 +39,8 @@ async fn main() {
         .port(config.aria2_rpc.port)
         .secure(config.aria2_rpc.secure)
         .secret(&config.aria2_rpc.secret)
+        .timeout(config.aria2_rpc.timeout)
+        .max_retries(config.aria2_rpc.max_retries)
         .rule(&config.rules)
         .option(&config.option)
         .ipset(&config.ipset)

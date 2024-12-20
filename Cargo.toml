@@ -1,6 +1,6 @@
 [package]
 name = "aria2-peer-blocker"
-version = "0.1.13"
+version = "0.1.14"
 description = "Aria2 Peer Blocker"
 authors = ["Keivry <keivry@163.com>"]
 edition = "2021"
@@ -15,8 +15,8 @@ clap = { version = "4.5.23", default-features = false, features = [
     "std",
     "usage",
 ] }
-colored = "2.1.0"
-env_logger = "0.11.5"
+colored = "2.2.0"
+env_logger = "0.11.6"
 hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
 ipset = "0.8.0"
 log = "0.4.22"
@@ -29,7 +29,6 @@ tokio = { version = "1.42.0", default-features = false, features = [
 ] }
 toml = { version = "0.8.19", default-features = false, features = ["parse"] }
 dashmap = "6.1.0"
-parking_lot = "0.12.3"
 
 [profile.release]
 opt-level = 3

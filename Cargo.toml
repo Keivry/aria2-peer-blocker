@@ -3,7 +3,7 @@ name = "aria2-peer-blocker"
 version = "0.1.14"
 description = "Aria2 Peer Blocker"
 authors = ["Keivry <keivry@163.com>"]
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 aria2-ws = "0.5.0"

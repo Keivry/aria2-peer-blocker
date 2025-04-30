@@ -30,80 +30,111 @@ use super::{
     executor::Executor,
 };
 
+/// Main component responsible for detecting and blocking malicious peers
+///
+/// This struct connects to an aria2 RPC server, monitors peers in active BitTorrent tasks,
+/// and blocks IP addresses of peers exhibiting suspicious behavior using ipset.
 pub struct Blocker {
-    /// The aria2 server URL
+    /// The WebSocket URL of the aria2 RPC server (e.g., "ws://localhost:6800/jsonrpc")
     pub(super) url: String,
-    /// The secret token for the aria
+
+    /// The secret token for authentication with the aria2 RPC server
     pub(super) secret: Option<String>,
 
-    /// Rpc timeout in seconds
+    /// Maximum time to wait for RPC operations to complete
     pub(super) timeout: Duration,
 
-    /// Rpc request max retries
+    /// Maximum number of retry attempts for failed RPC requests
     pub(super) max_retries: u32,
 
-    /// The websocket rpc client for interacting with the aria2 server
+    /// WebSocket RPC client for communicating with the aria2 server
     pub(super) client: Arc<RwLock<Option<Client>>>,
 
-    /// The rules for blocking peers
+    /// Rules that define when to block peers based on their behavior
     pub(super) rule: BlockRule,
 
-    /// The options for blocking peers
+    /// Configuration options controlling block behavior and timing
     pub(super) option: BlockOption,
 
-    /// The options for ipset
+    /// Configuration for ipset tables used to block peers
     pub(super) ipset: IPSetOption,
 
-    /// The cache for storing the blocklist and peer snapshots
+    /// In-memory cache storing blocklist and peer behavior history
     pub(super) cache: Arc<RwLock<Cache>>,
 }
 
-/// The status of a peer being blocked
+/// Represents the reason why a peer is being blocked (or not)
 #[derive(Debug, Clone, PartialEq)]
 enum BlockStatus {
-    Unblocked,                    // Not blocked
-    EmptyPeerId,                  // Empty peer ID
-    IllegalBitfield,              // Empty bitfield
-    BlockByPeerId(String),        // Blocked by peer ID with peer id prefix
-    BlockByRewind(u32, f64),      // Blocked by rewinding pieces count and percentage
-    BlockByUploadDifference(f64), // Blocked by upload progress difference
-    BlockByCompletedLatency(u32), // Blocked by download completion to zero latency
-    AlreadyBlocked(String),       // Already blocked
+    Unblocked,       // Peer is not blocked
+    EmptyPeerId,     // Peer has an empty or null peer ID
+    IllegalBitfield, // Peer has an empty or invalid bitfield
+    BlockByPeerId(String), /* Blocked due to matching peer ID pattern, contains the
+                      * matching prefix */
+    BlockByRewind(u32, f64), // Blocked for rewinding pieces, contains (pieces_count, percentage)
+    BlockByUploadDifference(f64), /* Blocked for suspicious upload/download ratio, contains
+                              * difference percentage */
+    BlockByCompletedLatency(u32), /* Blocked for completing download but not uploading,
+                                   * contains latency in seconds */
+    AlreadyBlocked(String), // Peer is already in the blocklist, contains the reason
 }
 
-/// Snapshots of a peer's download progress
+/// Snapshot of a peer's state at a specific point in time
+///
+/// Used to track peer behavior over time to detect suspicious patterns
+/// such as rewinding download progress or not contributing uploads
 #[derive(Debug, Clone)]
 struct PeerSnapshot {
-    upload_speed: u64, // The client's upload speed to the peer
-    percentage: f64,   // The peer's download progress percentage
-    bitfield: String,  // The peer's bitfield
+    upload_speed: u64, // The speed at which we are uploading to this peer (bytes/sec)
+    percentage: f64,   // The peer's download completion percentage (0.0 to 1.0)
+    bitfield: String,  /* Hexadecimal representation of the peer's bitfield (which pieces they
+                        * have) */
 }
 
+/// In-memory cache for storing peer history and blocklist information
+///
+/// This cache is thread-safe using DashMap for concurrent access from
+/// different async tasks
 pub(super) struct Cache {
-    /// The blocklist stores the blocked IP, block status and the timestamp when they were blocked
-    /// Used for checking if the peer is already blocked before aria2 disconnects it
-    /// The IP addresses will be removed from the blocklist after the peer_disconnect_latency
-    /// duration
+    /// Maps IP addresses to their block status and block timestamp
+    ///
+    /// This is used to:
+    /// 1. Check if a peer is already blocked before processing
+    /// 2. Prevent double-blocking the same peer
+    /// 3. Track when the peer was blocked for cleanup purposes
+    ///
+    /// Entries are automatically removed after peer_disconnect_latency expires
     blocklist: DashMap<IpAddr, (BlockStatus, u64)>,
 
-    /// The peer_snapshots stores the snapshots of the peer's download progress,
-    /// and the timestamp when the last snapshot was taken
-    /// Used for checking if the peer is rewinding or uploading too much data
-    /// The snapshots will be removed after the peer_snapshot_timeout duration
+    /// Maps IP addresses to a history of peer snapshots and the last update timestamp
+    ///
+    /// This is used to detect suspicious behavior patterns over time:
+    /// 1. Rewinding download progress (losing pieces that were previously downloaded)
+    /// 2. Uploading too much data relative to what was downloaded
+    /// 3. Completing download but still downloading
+    ///
+    /// Entries are automatically removed after peer_snapshot_timeout expires
     peer_snapshots: DashMap<IpAddr, (VecDeque<PeerSnapshot>, u64)>,
 }
 
 impl Blocker {
     pub fn builder() -> BlockerBuilder { BlockerBuilder::new() }
 
+    /// Start the peer monitoring and blocking process
+    ///
+    /// This method runs an infinite loop that:
+    /// 1. Initializes the connection to aria2
+    /// 2. Sets up IPv4 and IPv6 ipset executors
+    /// 3. Periodically checks for peers to block
+    /// 4. Updates ipset tables with the blocked peers' IP addresses
     pub async fn start(&mut self) {
-        // Initialize Blocker
+        // Initialize Blocker and connection to aria2
         while let Err(e) = self.initialize().await {
             error!("Initialization error: {:?}", e);
             sleep(self.option.exception_interval).await;
         }
 
-        // Initialize Executor
+        // Initialize IPv4 and IPv6 ipset executors
         let mut executor_v4 = Executor::new(
             &self.ipset.v4,
             self.ipset.netmask_v4,
@@ -117,14 +148,14 @@ impl Blocker {
             self.ipset.flush,
         );
 
-        // Get blocked peers and write to ipset
+        // Main loop: get blocked peers and update ipset tables
         loop {
             match self.retry(|| self.get_blocked_peers()).await {
                 Ok((ipv4, ipv6)) => {
                     debug!("BLOCKED IPV4 PEERS: {:?}", ipv4);
                     debug!("BLOCKED IPV6 PEERS: {:?}", ipv6);
 
-                    // Update ipset
+                    // Update ipset tables with blocked IP addresses
                     executor_v4
                         .update(&ipv4)
                         .unwrap_or_else(|_| error!("Error updating IPSet [{}]!", self.ipset.v4));
@@ -223,7 +254,7 @@ impl Blocker {
         while retries < self.max_retries {
             match timeout(self.timeout, action()).await {
                 Ok(result) => return result,
-                Err(_) => warn!("Timeout occurred during action, retrying..."),
+                Err(_) => warn!("Response timed out, retrying later..."),
             }
             sleep(self.option.exception_interval).await;
             // ensure connection is established before retry
@@ -231,7 +262,7 @@ impl Blocker {
 
             retries += 1;
         }
-        Err("Max retries exceeded during action".into())
+        Err("Maximum retry attempts reached.".into())
     }
 
     /// Get the set of blocked peers for all active BitTorrent tasks,
@@ -419,7 +450,14 @@ impl Blocker {
         }
     }
 
-    /// Check if the peer should be blocked based on the rewinded pieces and rewinded percent
+    /// Check if the peer should be blocked for rewinding download progress
+    ///
+    /// "Rewinding" means the peer had pieces before but now doesn't have them, which is suspicious
+    /// behavior that might indicate a fake client trying to waste bandwidth
+    ///
+    /// Blocks peers if:
+    /// 1. The number of rewinded pieces exceeds max_rewind_pieces AND
+    /// 2. The percentage of rewinded pieces exceeds max_rewind_percent
     async fn match_rewind_block(&self, ip: IpAddr, peer: &PeerSnapshot) -> BlockStatus {
         debug!(
             "PEER DETAIL: [{}], BITFIELD: [{:.20}], PERCENTAGE: [{:.2}%]",
@@ -459,8 +497,10 @@ impl Blocker {
         BlockStatus::Unblocked
     }
 
-    /// Check if the peer should be blocked based on the download completion to zero upload speed
-    /// latency
+    /// Check if the peer should be blocked for leeching behavior
+    ///
+    /// Detects peers that have completed downloading but continue to report as downloading after
+    /// the specified latency period has elapsed.
     async fn match_completed_latency(&self, ip: IpAddr, peer: &PeerSnapshot) -> BlockStatus {
         if let Some(entry) = self.cache.read().await.peer_snapshots.get(&ip) {
             let (snapshots, _) = entry.value();
@@ -483,7 +523,13 @@ impl Blocker {
         BlockStatus::Unblocked
     }
 
-    /// Check if the peer should be blocked based on the estimated upload size
+    /// Check if the peer should be blocked for asymmetric transfer ratio
+    ///
+    /// Detects peers that receive much more data than they download, which may indicate
+    /// a peer is intentionally wasting upload bandwidth
+    ///
+    /// Blocks if the difference between our upload to the peer and their actual download
+    /// exceeds max_upload_difference (as a percentage)
     async fn match_upload_data_block(
         &self,
         ip: IpAddr,
@@ -590,7 +636,11 @@ fn match_rule(peer_id: &str, rules: &[PeerIdRule]) -> bool {
     })
 }
 
-/// Calculate the number of rewinded pieces
+/// This function compares two bitfields (hex-encoded strings) and counts how many
+/// bits were set to 1 in the base bitfield but are now 0 in the current bitfield.
+///
+/// This is used to detect "rewinding" behavior where a peer seemingly loses pieces
+/// it previously had, which is suspicious and may indicate a malicious client.
 fn rewind_pieces(base: &str, bitfield: &str) -> u32 {
     let last_bits = match hex::decode(base) {
         Ok(bits) => bits,
@@ -608,7 +658,12 @@ fn rewind_pieces(base: &str, bitfield: &str) -> u32 {
         .sum()
 }
 
-/// Calculate the percentage of pieces downloaded by the peer
+/// Calculate what percentage of the total pieces a peer has downloaded
+///
+/// Converts the hex-encoded bitfield to bytes, counts the number of set bits (1s),
+/// and divides by the total number of pieces to get a completion percentage (0.0 to 1.0).
+///
+/// For example, if a peer has 50 out of 100 pieces, this returns 0.5 (50%).
 fn percentage(bitfield: &str, pieces_count: u64) -> f64 {
     let bitfield_bytes = match hex::decode(bitfield) {
         Ok(bits) => bits,

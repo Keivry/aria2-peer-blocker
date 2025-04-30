@@ -13,7 +13,7 @@ use peer_blocker::Blocker;
 #[derive(Parser, Debug)]
 #[command(version, about)]
 struct Cli {
-    /// path to the configuration file
+    /// Path to the configuration file
     #[arg(short, long)]
     config: Option<String>,
 }
@@ -48,6 +48,7 @@ async fn main() {
         .await;
 }
 
+/// Custom logger initialization, with optional timestamp
 fn init_logger(timestamp: bool, level: LevelFilter) {
     env_logger::Builder::new()
         .format(move |buf, record| {

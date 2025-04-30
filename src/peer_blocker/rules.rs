@@ -2,46 +2,54 @@ use std::rc::Rc;
 
 use serde::{Deserialize, Deserializer};
 
-/// The method for matching the peer ID
+/// Method used for peer ID matching
 #[derive(Debug, Deserialize)]
 pub enum PeerIdRuleMethod {
+    /// Checks if peer ID starts with specified string
     #[serde(rename = "STARTS_WITH")]
     StartsWith,
+    /// Checks if peer ID contains specified string
     #[serde(rename = "CONTAINS")]
     Contains,
 }
 
-/// Stores the rule for blocking peers based on the peer ID
+/// Rule definition for blocking peers based on their peer ID
 #[derive(Debug, Deserialize)]
 pub struct PeerIdRule {
+    /// Matching method to apply (StartsWith or Contains)
     pub method: PeerIdRuleMethod,
+    /// String content to match against peer ID (automatically converted to lowercase)
     #[serde(deserialize_with = "deserialize_peer_id_content_lowercase")]
     pub content: String,
 }
 
+/// Configuration of rules used to determine which peers should be blocked
 #[derive(Clone, Debug, Deserialize)]
 pub struct BlockRule {
-    /// The maximum allowed number of rewinded pieces
-    /// If the peer rewinds more pieces than this value,
-    /// and the percentage of rewinded pieces is greater than max_rewind_percent,
-    /// the peer will be blocked
+    /// Maximum allowed rewind pieces count for a peer
+    /// Works in conjunction with max_rewind_percent - peer will be blocked only when
+    /// BOTH this value AND max_rewind_percent are exceeded
     #[serde(default = "BlockRule::default_max_rewind_pieces")]
     pub max_rewind_pieces: u32,
+
+    /// Maximum allowed rewind percentage (0.0-1.0) of total length for a peer
+    /// Works in conjunction with max_rewind_pieces - peer will be blocked only when
+    /// BOTH this value AND max_rewind_pieces are exceeded
     #[serde(default = "BlockRule::default_max_rewind_percent")]
     pub max_rewind_percent: f64,
 
-    /// The maximum allowed difference between the estimated upload size
-    /// and the actual download size reported by the peer
-    /// If the difference is greater than this value, the peer will be blocked
+    /// Maximum allowed ratio difference between estimated upload size and actual download size
+    /// reported by peer. If the actual difference ratio exceeds this value, the peer will be
+    /// blocked. Value is expressed as a ratio (e.g., 0.20 = 20%)
     #[serde(default = "BlockRule::default_max_upload_difference")]
     pub max_upload_difference: f64,
 
-    /// The maximum allowed latency from the peer's download completion to the upload speed
-    /// reaching zero
+    /// Maximum allowed seconds between download completion and upload speed
+    /// reaching zero. If this time limit is exceeded, the peer will be blocked
     #[serde(default = "BlockRule::default_max_latency_completed_to_zero")]
     pub max_latency_completed_to_zero: u32,
 
-    /// The rules for blocking peers based on the peer ID
+    /// List of rules for blocking peers based on peer ID matching
     #[serde(
         default = "BlockRule::default_peer_id_rules",
         deserialize_with = "deserialize_peer_id_rules"
@@ -64,25 +72,13 @@ impl BlockRule {
 
     #[inline]
     fn default_peer_id_rules() -> Rc<Vec<PeerIdRule>> {
-        // https://docs.pbh-btn.com/docs/module/peer-id/
+        // Default rules only contain the most common unwelcome peer IDs:
+        // -XL: Xunlei, -SD: Xunlei, -XF: Xfplay, -QD: QQDownload
         let rules = vec![
-            ("STARTS_WITH", "-xl"),
-            ("STARTS_WITH", "-hp"),
-            ("STARTS_WITH", "-xm"),
-            ("STARTS_WITH", "-dt"),
-            ("STARTS_WITH", "-gt0002"),
-            ("STARTS_WITH", "-gt0003"),
-            ("STARTS_WITH", "-sd"),
-            ("STARTS_WITH", "-xf"),
-            ("STARTS_WITH", "-qd"),
-            ("STARTS_WITH", "-bn"),
-            ("STARTS_WITH", "-dl"),
-            ("STARTS_WITH", "-ts"),
-            ("STARTS_WITH", "-fg"),
-            ("STARTS_WITH", "-tt"),
-            ("STARTS_WITH", "-nx"),
-            ("CONTAINS", "-rn0.0.0"),
-            ("CONTAINS", "cacao"),
+            ("STARTS_WITH", "-XL"),
+            ("STARTS_WITH", "-SD"),
+            ("STARTS_WITH", "-XF"),
+            ("STARTS_WITH", "-QD"),
         ]
         .into_iter()
         .map(|(method, content)| PeerIdRule {
@@ -111,6 +107,7 @@ impl Default for BlockRule {
     }
 }
 
+/// Custom deserializer for peer ID rules that wraps the vector in Rc
 fn deserialize_peer_id_rules<'de, D>(
     deserializer: D,
 ) -> std::result::Result<Rc<Vec<PeerIdRule>>, D::Error>
@@ -121,6 +118,7 @@ where
     Ok(Rc::new(rules))
 }
 
+/// Custom deserializer that converts peer ID content to lowercase for case-insensitive matching
 fn deserialize_peer_id_content_lowercase<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
     D: Deserializer<'de>,

@@ -1,0 +1,19 @@
+max_width = 100
+
+group_imports = "StdExternalCrate"
+imports_granularity = "Crate"
+imports_layout = "HorizontalVertical"
+
+comment_width = 100
+normalize_comments = true
+wrap_comments = true
+
+doc_comment_code_block_width = 100
+format_code_in_doc_comments = true
+
+condense_wildcard_suffixes = true
+use_field_init_shorthand = true
+
+fn_single_line = true
+
+reorder_impl_items = true

@@ -1,98 +1,163 @@
-## Configuration for aria2-peer-blocker
+###############################################################################
+# Configuration File
 #
-## [log]
-##     - level: log level, available values are "trace", "debug", "info", "warn", "error", "off".
-##     - timestamp: whether to add timestamp to log output.
+# This file contains all configuration options for the aria2-peer-blocker program.
+# Sections that are not explicitly configured will use default values.
+###############################################################################
+
+## [log] Logging Configuration
+##
+## Controls the verbosity and formatting of log output.
+##
+## Options:
+##   - level: Log level determining which messages are displayed
+##       Available values: "off", "error", "warn", "info", "debug", "trace"
+##       Default: "info"
+##
+##   - timestamp: Whether to add timestamps to log messages
+##       When set to true, each log message is prefixed with a timestamp
+##       Default: false
 #
 # [log]
-# level = "warn"
-# timestamp = true
+# level = "info"
+# timestamp = false
 
-## [aria2_rpc]
-##     - host: aria2 RPC server host.
-##     - port: aria2 RPC server port.
-##     - secure: whether aria2 RPC transport will be encrypted by ssl/tls.
-##     - secret: aria2 RPC secret authorization token.
-##     - timeout: time in seconds to wait for a response from the aria2 RPC server.
-##     - max_retries: number of retries when rpc request fails.
+## [aria2_rpc] Aria2 RPC Connection Settings
+##
+## Controls how the application connects and communicates with the Aria2 daemon via JSON-RPC.
+## These settings must match your Aria2 daemon configuration.
+##
+## Options:
+##   - host: Aria2 RPC server hostname or IP address
+##       Default: "localhost"
+##
+##   - port: Aria2 RPC server port number
+##       Default: 6800 (Aria2's default RPC port)
+##
+##   - secure: Whether to use SSL/TLS encryption for RPC transport
+##       Default: false
+##
+##   - secret: Aria2 RPC secret token for authentication
+##       Must match the secret token configured in Aria2 (--rpc-secret option)
+##       If empty, no authentication is used
+##
+##   - timeout: Maximum seconds to wait for an RPC response
+##       RPC requests will be aborted if they exceed this time
+##       Default: 5
+##
+##   - max_retries: Maximum number of retry attempts for failed RPC requests
+##       When an RPC request fails, it will be retried up to this many times
+##       Default: 3
 #
 # [aria2_rpc]
 # host = "localhost"
 # port = 6800
 # secure = false
-# secret = ""
 # timeout = 5
 # max_retries = 3
 
-## [rules]
-##     - max_rewind_pieces & max_rewind_percent:
-##          maximum rewind pieces count and percentage of totol length allowed for a peer,
-##          if both exceed the specified values, the peer will be blocked.
-##     - max_upload_difference:
-##          maximum allowed difference between upload size between estimated and reported by peer,
-##              estimated = sum(snapshots.upload_speed) * interval,
-##              reported = diff(snapshots[0].bitfield, snapshots[-1].bitfield).count * pieces_length.
-##              difference = (estimated - reported) / estimated,
-##     - max_latency_completed_to_zero:
-##          maximum allowed latency from peer's download completion to the upload speed reaching zero
-##     - peer_id_rules:
-##          list of rules for peer id matching, if any rule is matched, the peer will be blocked.
-##          - method: matching method, available values are "STARTS_WITH" and "CONTAINS".
-##          - content: matching content.
+## [rules] Peer Blocking Rules Configuration
+##
+## Defines the rules used to determine which peers should be blocked.
+##
+## Options:
+##   - max_rewind_pieces: Maximum allowed rewind pieces count for a peer
+##       Works in conjunction with max_rewind_percent - peer is only blocked when BOTH values are exceeded
+##       Default: 5
+##
+##   - max_rewind_percent: Maximum allowed rewind percentage (0.0-1.0) for a peer
+##       Works in conjunction with max_rewind_pieces - peer is only blocked when BOTH values are exceeded
+##       Default: 0.05 (5%)
+##
+##   - max_upload_difference: Maximum allowed ratio difference between estimated upload size and actual download size
+##       reported by the peer. If the actual ratio difference exceeds this value, the peer will be blocked
+##       Default: 0.20 (20%)
+##
+##   - max_latency_completed_to_zero: Maximum allowed seconds between download completion and upload speed reaching zero
+##       If this time limit is exceeded, the peer will be blocked
+##       Default: 300 (5 minutes)
+##
+##   - peer_id_rules: List of rules for blocking peers based on peer ID matching
+##       - method: Matching method, available values are "STARTS_WITH" or "CONTAINS"
+##       - content: String content to match against the peer ID (automatically converted to lowercase for case-insensitive matching)
+#
+##       Default rules only include the most common unwelcome peer IDs:
+##       -XL: Xunlei, -SD: Xunlei, -XF: Xfplay, -QD: QQ Downloader
+##       You can add more rules to the list if needed (e.g. https://docs.pbh-btn.com/docs/module/peer-id)
 #
 # [rules]
 # max_rewind_pieces = 5
-# max_rewind_pecent = 0.05
+# max_rewind_percent = 0.05
 # max_upload_difference = 0.20
-# max_latency_completed_to_zero = 30
-#
-## https://docs.pbh-btn.com/docs/module/peer-id/
+# max_latency_completed_to_zero = 300
 # peer_id_rules = [
-#     { method = "STARTS_WITH", content = "-xl" },
-#     { method = "STARTS_WITH", content = "-hp" },
-#     { method = "STARTS_WITH", content = "-xm" },
-#     { method = "STARTS_WITH", content = "-dt" },
-#     { method = "STARTS_WITH", content = "-gt0002" },
-#     { method = "STARTS_WITH", content = "-gt0003" },
-#     { method = "STARTS_WITH", content = "-sd" },
-#     { method = "STARTS_WITH", content = "-xf" },
-#     { method = "STARTS_WITH", content = "-qd" },
-#     { method = "STARTS_WITH", content = "-bn" },
-#     { method = "STARTS_WITH", content = "-dl" },
-#     { method = "STARTS_WITH", content = "-ts" },
-#     { method = "STARTS_WITH", content = "-fg" },
-#     { method = "STARTS_WITH", content = "-tt" },
-#     { method = "STARTS_WITH", content = "-nx" },
-#     { method = "CONTAINS", content = "-rn0.0.0" },
-#     { method = "CONTAINS", content = "cacao" },
+#     { method = "STARTS_WITH", content = "-XL" },
+#     { method = "STARTS_WITH", content = "-SD" },
+#     { method = "STARTS_WITH", content = "-XF" },
+#     { method = "STARTS_WITH", content = "-QD" },
 # ]
 
-## [option]
-##     - snapshots_count: number of peer information snapshots to keep for each peer.
-##     - interval: time interval for take snapshot of peer information from aria2.
-##     - exception_interval: time interval when exception occurs while querying peer information.
-##     - peer_disconnect_latency: latency from peer being blocked to disconnecting by aria2.
-##     - peer_snapshot_timeout: timeout for peer snapshots to be released, from the last snapshot.
-##     - block_duration: duration for blocking a peer, remove the peer from block list after this duration.
+## [option] Runtime Options Configuration
+##
+## Defines parameters that control monitoring frequency, timing thresholds, and block duration for problematic peers.
+##
+## Options:
+##   - snapshots_count: Maximum number of peer info snapshots to keep in memory for each peer
+##       Higher values provide more accurate detection but use more memory
+##       Default: 60
+##
+##   - interval: Time interval (in seconds) between each peer snapshot collection
+##       Controls the sampling frequency of peer behavior
+##       Default: 1
+##
+##   - exception_interval: Special interval delay (in seconds) applied after an exception occurs during peer info queries
+##       Default: 90
+##
+##   - peer_snapshot_timeout: Time period (in seconds) that peer snapshots are retained in memory
+##       This should be set to a value greater than snapshots_count * interval
+##       Snapshots older than this value will be purged
+##       Default: 1800 (30 minutes)
+##
+##   - peer_disconnect_latency: Estimated time (in seconds) for aria2 to disconnect a peer after it has been blocked
+##       Used for avoid duplicate blocking of the same peer, peer blocked multiple times in this
+##       time will be ignored
+##       Default: 300 (5 minutes)
+##
+##   - block_duration: Duration (in seconds) that a peer remains blocked.
+##       Once this period expires, the peer will be removed from the block list
+##       Default: 43200 (12 hours)
 #
 # [option]
-# snapshots_count = 30
-# interval = 2
+# snapshots_count = 60
+# interval = 1
 # exception_interval = 90
-# peer_disconnect_latency = 180
-# peer_snapshot_timeout = 300
+# peer_snapshot_timeout = 1800
+# peer_disconnect_latency = 300
 # block_duration = 43200
 
-## [ipset]
-##     flush: boolean value to control whether to flush the ipsets on startup.
-##     v4: ipset name for IPv4.
-##     netmask_v4: netmask length for IPv4.
-##     v6: ipset name for IPv6.
-##     netmask_v6: netmask length for IPv6.
+## [ipset] Linux IPSet Integration Configuration
+##
+## Controls how the Linux kernel's IPSet feature is used to block peer IP addresses.
+##
+## Options:
+##   - flush: Whether to clear the IPSet tables on program initialization
+##       Default: true
+##
+##   - v4: Name of the IPSet table for IPv4 addresses
+##       Default: "PeerBlock"
+##
+##   - netmask_v4: Network mask for IPv4 addresses (CIDR notation)
+##       Default: 32 (exact match for single IP addresses)
+##
+##   - v6: Name of the IPSet table for IPv6 addresses
+##       Default: "PeerBlockv6"
+##
+##   - netmask_v6: Network mask for IPv6 addresses (CIDR notation)
+##       Default: 64 (matches IPv6 network prefix)
 #
 # [ipset]
 # flush = true
-# v4 = "blockIP"
+# v4 = "PeerBlock"
 # netmask_v4 = 32
-# v6 = "blockIPv6"
+# v6 = "PeerBlockv6"
 # netmask_v6 = 64

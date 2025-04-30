@@ -1,6 +1,6 @@
-use serde::Deserialize;
-
 use std::time::Duration;
+
+use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct BlockOption {
@@ -31,34 +31,22 @@ pub struct BlockOption {
 
 impl BlockOption {
     #[inline]
-    fn default_snapshots_count() -> u8 {
-        30
-    }
+    fn default_snapshots_count() -> u8 { 30 }
 
     #[inline]
-    fn default_interval() -> Duration {
-        Duration::from_secs(2)
-    }
+    fn default_interval() -> Duration { Duration::from_secs(2) }
 
     #[inline]
-    fn default_exception_interval() -> Duration {
-        Duration::from_secs(90)
-    }
+    fn default_exception_interval() -> Duration { Duration::from_secs(90) }
 
     #[inline]
-    fn default_peer_snapshot_timeout() -> u32 {
-        300
-    }
+    fn default_peer_snapshot_timeout() -> u32 { 300 }
 
     #[inline]
-    fn default_peer_disconnect_latency() -> u32 {
-        300
-    }
+    fn default_peer_disconnect_latency() -> u32 { 300 }
 
     #[inline]
-    fn default_block_duration() -> Duration {
-        Duration::from_secs(43200)
-    }
+    fn default_block_duration() -> Duration { Duration::from_secs(43200) }
 }
 
 impl Default for BlockOption {

@@ -1,18 +1,14 @@
-use super::{
-    super::{
-        ipset::IPSetOption,
-        option::BlockOption,
-        rules::{BlockRule, PeerIdRule, PeerIdRuleMethod},
-        utils::timestamp,
-        Result,
-    },
-    builder::BlockerBuilder,
-    executor::Executor,
+use std::{
+    collections::{HashSet, VecDeque},
+    future::Future,
+    net::IpAddr,
+    sync::Arc,
+    time::Duration,
 };
 
 use aria2_ws::{
-    response::{Peer, Status as TaskStatus},
     Client,
+    response::{Peer, Status as TaskStatus},
 };
 use dashmap::DashMap;
 use log::{debug, error, info, warn};
@@ -22,12 +18,16 @@ use tokio::{
     time::{interval, sleep, timeout},
 };
 
-use std::{
-    collections::{HashSet, VecDeque},
-    future::Future,
-    net::IpAddr,
-    sync::Arc,
-    time::Duration,
+use super::{
+    super::{
+        Result,
+        ipset::IPSetOption,
+        option::BlockOption,
+        rules::{BlockRule, PeerIdRule, PeerIdRuleMethod},
+        utils::timestamp,
+    },
+    builder::BlockerBuilder,
+    executor::Executor,
 };
 
 pub struct Blocker {
@@ -82,7 +82,8 @@ struct PeerSnapshot {
 pub(super) struct Cache {
     /// The blocklist stores the blocked IP, block status and the timestamp when they were blocked
     /// Used for checking if the peer is already blocked before aria2 disconnects it
-    /// The IP addresses will be removed from the blocklist after the peer_disconnect_latency duration
+    /// The IP addresses will be removed from the blocklist after the peer_disconnect_latency
+    /// duration
     blocklist: DashMap<IpAddr, (BlockStatus, u64)>,
 
     /// The peer_snapshots stores the snapshots of the peer's download progress,
@@ -93,9 +94,7 @@ pub(super) struct Cache {
 }
 
 impl Blocker {
-    pub fn builder() -> BlockerBuilder {
-        BlockerBuilder::new()
-    }
+    pub fn builder() -> BlockerBuilder { BlockerBuilder::new() }
 
     pub async fn start(&mut self) {
         // Initialize Blocker
@@ -385,7 +384,7 @@ impl Blocker {
                     BlockStatus::EmptyPeerId => "EmptyPeerId",
                     BlockStatus::IllegalBitfield => "EmptyBitfield",
                     BlockStatus::BlockByPeerId(_) => "BlockByPeerId",
-                    BlockStatus::BlockByRewind(_, _) => "BlockByRewind",
+                    BlockStatus::BlockByRewind(..) => "BlockByRewind",
                     BlockStatus::BlockByUploadDifference(_) => "BlockByUploadDifference",
                     BlockStatus::BlockByCompletedLatency(_) => "BlockByCompletedLatency",
                     _ => "",
@@ -460,7 +459,8 @@ impl Blocker {
         BlockStatus::Unblocked
     }
 
-    /// Check if the peer should be blocked based on the download completion to zero upload speed latency
+    /// Check if the peer should be blocked based on the download completion to zero upload speed
+    /// latency
     async fn match_completed_latency(&self, ip: IpAddr, peer: &PeerSnapshot) -> BlockStatus {
         if let Some(entry) = self.cache.read().await.peer_snapshots.get(&ip) {
             let (snapshots, _) = entry.value();

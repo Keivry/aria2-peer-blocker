@@ -21,29 +21,19 @@ pub struct IPSetOption {
 
 impl IPSetOption {
     #[inline]
-    fn default_flush() -> bool {
-        true
-    }
+    fn default_flush() -> bool { true }
 
     #[inline]
-    fn default_v4() -> String {
-        "PeerBlock".to_string()
-    }
+    fn default_v4() -> String { "PeerBlock".to_string() }
 
     #[inline]
-    fn default_netmask_v4() -> u8 {
-        32
-    }
+    fn default_netmask_v4() -> u8 { 32 }
 
     #[inline]
-    fn default_v6() -> String {
-        "PeerBlock_v6".to_string()
-    }
+    fn default_v6() -> String { "PeerBlock_v6".to_string() }
 
     #[inline]
-    fn default_netmask_v6() -> u8 {
-        64
-    }
+    fn default_netmask_v6() -> u8 { 64 }
 }
 
 impl Default for IPSetOption {

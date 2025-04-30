@@ -1,13 +1,15 @@
-use super::super::{
-    utils::{timestamp, Cidr},
-    Result,
+use std::{
+    collections::{HashMap, HashSet},
+    net::IpAddr,
 };
 
-use ipset::{types::HashNet, Session};
+use ipset::{Session, types::HashNet};
 use log::debug;
 
-use std::collections::{HashMap, HashSet};
-use std::net::IpAddr;
+use super::super::{
+    Result,
+    utils::{Cidr, timestamp},
+};
 
 pub struct Executor {
     pub ipset: String,

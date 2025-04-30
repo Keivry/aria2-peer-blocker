@@ -1,8 +1,10 @@
+use std::{
+    fmt::{Display, Formatter, Result},
+    net::IpAddr,
+};
+
 use chrono::Local;
 use ipset::types::NetDataType;
-
-use std::fmt::{Display, Formatter, Result};
-use std::net::IpAddr;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Cidr {
@@ -11,26 +13,18 @@ pub struct Cidr {
 }
 
 impl Cidr {
-    pub fn new(ip: IpAddr, netmask: u8) -> Self {
-        cidr(ip, netmask)
-    }
+    pub fn new(ip: IpAddr, netmask: u8) -> Self { cidr(ip, netmask) }
 }
 
 impl Display for Cidr {
-    fn fmt(&self, f: &mut Formatter) -> Result {
-        write!(f, "{}/{}", self.ip, self.netmask)
-    }
+    fn fmt(&self, f: &mut Formatter) -> Result { write!(f, "{}/{}", self.ip, self.netmask) }
 }
 
 impl From<&Cidr> for NetDataType {
-    fn from(cidr: &Cidr) -> NetDataType {
-        NetDataType::new(cidr.ip, cidr.netmask)
-    }
+    fn from(cidr: &Cidr) -> NetDataType { NetDataType::new(cidr.ip, cidr.netmask) }
 }
 
-pub fn timestamp() -> u64 {
-    Local::now().timestamp() as u64
-}
+pub fn timestamp() -> u64 { Local::now().timestamp() as u64 }
 
 /// Convert IP and netmask to CIDR format.
 /// ip: 192.168.1.1 and netmask: 24 -> 192.168.1.0/24

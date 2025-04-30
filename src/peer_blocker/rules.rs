@@ -1,6 +1,6 @@
-use serde::{Deserialize, Deserializer};
-
 use std::rc::Rc;
+
+use serde::{Deserialize, Deserializer};
 
 /// The method for matching the peer ID
 #[derive(Debug, Deserialize)]
@@ -36,7 +36,8 @@ pub struct BlockRule {
     #[serde(default = "BlockRule::default_max_upload_difference")]
     pub max_upload_difference: f64,
 
-    /// The maximum allowed latency from the peer's download completion to the upload speed reaching zero
+    /// The maximum allowed latency from the peer's download completion to the upload speed
+    /// reaching zero
     #[serde(default = "BlockRule::default_max_latency_completed_to_zero")]
     pub max_latency_completed_to_zero: u32,
 
@@ -50,24 +51,16 @@ pub struct BlockRule {
 
 impl BlockRule {
     #[inline]
-    fn default_max_rewind_pieces() -> u32 {
-        5
-    }
+    fn default_max_rewind_pieces() -> u32 { 5 }
 
     #[inline]
-    fn default_max_rewind_percent() -> f64 {
-        0.05
-    }
+    fn default_max_rewind_percent() -> f64 { 0.05 }
 
     #[inline]
-    fn default_max_upload_difference() -> f64 {
-        0.20
-    }
+    fn default_max_upload_difference() -> f64 { 0.20 }
 
     #[inline]
-    fn default_max_latency_completed_to_zero() -> u32 {
-        300
-    }
+    fn default_max_latency_completed_to_zero() -> u32 { 300 }
 
     #[inline]
     fn default_peer_id_rules() -> Rc<Vec<PeerIdRule>> {

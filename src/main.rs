@@ -2,14 +2,13 @@ mod config;
 use config::Config;
 
 mod peer_blocker;
-use peer_blocker::Blocker;
+use std::{io::Write, str::FromStr};
 
 use chrono::Local;
 use clap::Parser;
 use colored::{Color, Colorize};
-use log::{debug, LevelFilter};
-
-use std::{io::Write, str::FromStr};
+use log::{LevelFilter, debug};
+use peer_blocker::Blocker;
 
 #[derive(Parser, Debug)]
 #[command(version, about)]

@@ -1,12 +1,12 @@
-use super::{
-    super::{BlockOption, BlockRule, IPSetOption},
-    blocker::Cache,
-    Blocker,
-};
+use std::{sync::Arc, time::Duration};
 
 use tokio::sync::RwLock;
 
-use std::{sync::Arc, time::Duration};
+use super::{
+    super::{BlockOption, BlockRule, IPSetOption},
+    Blocker,
+    blocker::Cache,
+};
 
 pub struct BlockerBuilder {
     host: String,
@@ -59,34 +59,42 @@ impl BlockerBuilder {
         self.host = host.to_string();
         self
     }
+
     pub fn port(mut self, port: u16) -> Self {
         self.port = port;
         self
     }
+
     pub fn secure(mut self, secure: bool) -> Self {
         self.secure = secure;
         self
     }
+
     pub fn secret(mut self, secret: &Option<String>) -> Self {
         self.secret = secret.clone();
         self
     }
+
     pub fn timeout(mut self, timeout: u32) -> Self {
         self.timeout = timeout;
         self
     }
+
     pub fn max_retries(mut self, max_retries: u32) -> Self {
         self.max_retries = max_retries;
         self
     }
+
     pub fn rule(mut self, rule: &BlockRule) -> Self {
         self.rule = rule.clone();
         self
     }
+
     pub fn option(mut self, option: &BlockOption) -> Self {
         self.option = option.clone();
         self
     }
+
     pub fn ipset(mut self, ipset: &IPSetOption) -> Self {
         self.ipset = ipset.clone();
         self

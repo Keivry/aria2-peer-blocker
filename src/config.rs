@@ -1,6 +1,6 @@
-use super::peer_blocker::{BlockOption, BlockRule, IPSetOption, Result};
-
 use serde::Deserialize;
+
+use super::peer_blocker::{BlockOption, BlockRule, IPSetOption, Result};
 
 #[derive(Debug, Default, Deserialize)]
 pub struct Config {
@@ -65,31 +65,21 @@ impl Config {
 
 impl LoggerConfig {
     #[inline]
-    fn default_log_level() -> String {
-        "info".to_string()
-    }
+    fn default_log_level() -> String { "info".to_string() }
 }
 
 impl RpcConfig {
     #[inline]
-    fn default_host() -> String {
-        "localhost".to_string()
-    }
+    fn default_host() -> String { "localhost".to_string() }
 
     #[inline]
-    fn default_port() -> u16 {
-        6800
-    }
+    fn default_port() -> u16 { 6800 }
 
     #[inline]
-    fn default_timeout() -> u32 {
-        5
-    }
+    fn default_timeout() -> u32 { 5 }
 
     #[inline]
-    fn default_max_retries() -> u32 {
-        3
-    }
+    fn default_max_retries() -> u32 { 3 }
 }
 
 impl Default for LoggerConfig {

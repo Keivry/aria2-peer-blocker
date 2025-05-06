@@ -42,7 +42,7 @@
 ##       If empty, no authentication is used
 ##
 ##   - timeout: Maximum seconds to wait for an RPC response
-##       RPC requests will be aborted if they exceed this time
+##       If the response takes longer than this, the request will be considered failed
 ##       Default: 5
 ##
 ##   - max_retries: Maximum number of retry attempts for failed RPC requests
@@ -119,8 +119,7 @@
 ##       Default: 1800 (30 minutes)
 ##
 ##   - peer_disconnect_latency: Estimated time (in seconds) for aria2 to disconnect a peer after it has been blocked
-##       Used for avoid duplicate blocking of the same peer, peer blocked multiple times in this
-##       time will be ignored
+##       Used for avoid duplicate blocking of the same peer, peer blocked multiple times in this time will be ignored
 ##       Default: 300 (5 minutes)
 ##
 ##   - block_duration: Duration (in seconds) that a peer remains blocked.

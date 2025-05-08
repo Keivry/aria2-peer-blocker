@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - v[0-9]+.*
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Changelog
+        id: changelog
+        uses: mikepenz/release-changelog-builder-action@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: ${{ steps.changelog.outputs.changelog }}
+
+  build-and-upload:
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        uses: ./.github/actions/install-dependencies
+
+      - name: Install Rust Nightly Toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: aria2-peer-blocker
+          tar: none
+          tar-xz: unix
+          checksum: sha512
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  cleanup:
+    needs: [create-release, build-and-upload]
+    runs-on: ubuntu-latest
+    if: failure() && needs.build-and-upload.result == 'failure'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Delete Failed Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete --yes ${{ github.ref_name }}

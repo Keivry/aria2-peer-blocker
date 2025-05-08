@@ -1,0 +1,10 @@
+name: Install Dependencies
+description: Installs common dependencies
+runs:
+  using: composite
+  steps:
+    - name: Install System Dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libclang-dev libipset-dev

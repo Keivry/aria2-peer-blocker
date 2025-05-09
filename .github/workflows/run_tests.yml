@@ -23,6 +23,8 @@ jobs:
         uses: ./.github/actions/install-dependencies
 
       - name: Install Rust Nightly Toolchain
-        uses: dtolnay/rust-toolchain@nightly
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly
 
       - run: cargo test --all-features

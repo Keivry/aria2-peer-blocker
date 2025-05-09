@@ -1,0 +1,20 @@
+name: Check Formatting
+on:
+  push:
+  pull_request:
+
+jobs:
+  check-fmt:
+    name: Check Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust Nightly Toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
+      - name: Rustfmt Check
+        run: cargo fmt --check --all

@@ -1,25 +1,10 @@
-name: Formatting and Run Tests
+name: Run Tests
 on:
   push:
   pull_request:
 
 jobs:
-  formatting:
-    name: Formatting
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust Nightly Toolchain
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: rustfmt
-
-      - name: Rustfmt Check
-        run: cargo fmt --all
-
-  test:
+  run-tests:
     name: Run Tests
     runs-on: ubuntu-latest
     steps:

@@ -1,7 +1,15 @@
 name: Check Formatting
 on:
   push:
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
   pull_request:
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
 
 jobs:
   check-fmt:

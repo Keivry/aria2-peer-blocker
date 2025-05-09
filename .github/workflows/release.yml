@@ -38,11 +38,14 @@ jobs:
         uses: ./.github/actions/install-dependencies
 
       - name: Install Rust Nightly Toolchain
-        uses: dtolnay/rust-toolchain@nightly
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly
 
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: aria2-peer-blocker
+          include: LICENSE,README.md,README_zh.md
           tar: none
           tar-xz: unix
           checksum: sha512

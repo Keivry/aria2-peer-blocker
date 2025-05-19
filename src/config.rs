@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-use super::peer_blocker::{BlockOption, BlockRule, IPSetOption, Result};
+use super::peer_blocker::{BlockOption, BlockRule, FwOption, Result};
 
 /// Main configuration structure for the Aria2 peer blocker
 ///
@@ -25,9 +25,9 @@ pub struct Config {
     #[serde(default)]
     pub option: BlockOption,
 
-    /// IPSet configuration for Linux kernel firewall integration
+    /// Options for Linux firewall integration
     #[serde(default)]
-    pub ipset: IPSetOption,
+    pub firewall: FwOption,
 }
 
 /// Logging configuration parameters
@@ -48,6 +48,20 @@ pub struct LoggerConfig {
     /// Default is false.
     #[serde(default)]
     pub timestamp: bool,
+}
+
+impl LoggerConfig {
+    #[inline]
+    fn default_log_level() -> String { "info".to_string() }
+}
+
+impl Default for LoggerConfig {
+    fn default() -> Self {
+        Self {
+            level: LoggerConfig::default_log_level(),
+            timestamp: false,
+        }
+    }
 }
 
 /// Aria2 RPC connection configuration
@@ -99,25 +113,6 @@ pub struct RpcConfig {
     pub max_retries: u32,
 }
 
-impl Config {
-    /// Load configuration from a TOML file
-    ///
-    /// Will return an error if:
-    /// - The file cannot be read
-    /// - The file contains invalid TOML
-    /// - The TOML cannot be parsed into the Config structure
-    pub fn load(filename: &str) -> Result<Config> {
-        let config_data = std::fs::read_to_string(filename)?;
-        let config: Config = toml::from_str(&config_data)?;
-        Ok(config)
-    }
-}
-
-impl LoggerConfig {
-    #[inline]
-    fn default_log_level() -> String { "info".to_string() }
-}
-
 impl RpcConfig {
     #[inline]
     fn default_host() -> String { "localhost".to_string() }
@@ -132,15 +127,6 @@ impl RpcConfig {
     fn default_max_retries() -> u32 { 3 }
 }
 
-impl Default for LoggerConfig {
-    fn default() -> Self {
-        Self {
-            level: LoggerConfig::default_log_level(),
-            timestamp: false,
-        }
-    }
-}
-
 impl Default for RpcConfig {
     fn default() -> Self {
         Self {
@@ -151,5 +137,19 @@ impl Default for RpcConfig {
             timeout: RpcConfig::default_timeout(),
             max_retries: RpcConfig::default_max_retries(),
         }
+    }
+}
+
+impl Config {
+    /// Load configuration from a TOML file
+    ///
+    /// Will return an error if:
+    /// - The file cannot be read
+    /// - The file contains invalid TOML
+    /// - The TOML cannot be parsed into the Config structure
+    pub fn load(filename: &str) -> Result<Config> {
+        let config_data = std::fs::read_to_string(filename)?;
+        let config: Config = toml::from_str(&config_data)?;
+        Ok(config)
     }
 }

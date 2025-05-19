@@ -1,11 +1,11 @@
 mod blocker;
-mod ipset;
+mod firewall;
 mod option;
 mod rules;
 mod utils;
 
 pub use blocker::Blocker;
-pub use ipset::IPSetOption;
+pub use firewall::{Firewall, FwOption};
 pub use option::BlockOption;
 pub use rules::BlockRule;
 

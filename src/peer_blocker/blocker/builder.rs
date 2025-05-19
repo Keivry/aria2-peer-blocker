@@ -3,10 +3,11 @@ use std::{sync::Arc, time::Duration};
 use tokio::sync::RwLock;
 
 use super::{
-    super::{BlockOption, BlockRule, IPSetOption},
+    super::{BlockOption, BlockRule},
     Blocker,
     blocker::Cache,
 };
+use crate::peer_blocker::FwOption;
 
 pub struct BlockerBuilder {
     host: String,
@@ -17,7 +18,7 @@ pub struct BlockerBuilder {
     max_retries: u32,
     rule: BlockRule,
     option: BlockOption,
-    ipset: IPSetOption,
+    fw_option: FwOption,
 }
 
 impl BlockerBuilder {
@@ -31,7 +32,7 @@ impl BlockerBuilder {
             max_retries: 3,
             rule: BlockRule::default(),
             option: BlockOption::default(),
-            ipset: IPSetOption::default(),
+            fw_option: FwOption::default(),
         }
     }
 
@@ -50,7 +51,7 @@ impl BlockerBuilder {
             client: Arc::new(RwLock::new(None)),
             rule: self.rule,
             option: self.option,
-            ipset: self.ipset,
+            fw_option: self.fw_option,
             cache: Arc::new(RwLock::new(Cache::empty())),
         }
     }
@@ -95,8 +96,8 @@ impl BlockerBuilder {
         self
     }
 
-    pub fn ipset(mut self, ipset: &IPSetOption) -> Self {
-        self.ipset = ipset.clone();
+    pub fn fw_option(mut self, option: &FwOption) -> Self {
+        self.fw_option = option.clone();
         self
     }
 }

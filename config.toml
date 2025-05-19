@@ -134,13 +134,26 @@
 # peer_disconnect_latency = 300
 # block_duration = 43200
 
-## [ipset] Linux IPSet Integration Configuration
+## [firewall] Options for Linux firewall integration
 ##
-## Controls how the Linux kernel's IPSet feature is used to block peer IP addresses.
+## Controls how the application interacts with the Linux firewall (iptables/ipset or nftables/nftset).
 ##
 ## Options:
-##   - flush: Whether to clear the IPSet tables on program initialization
+##   - type: Type of firewall integration to use
+##       Available values: "none", "iptables", "nftables"
+##       If set to "none", no firewall rules will be created, only IP sets will be used
+##       Default: "none"
+##
+##   - ipv6: Whether to enable IPv6 support
 ##       Default: true
+##
+##   - flush: Whether to clear the IP sets on program initialization
+##       Default: true
+##
+##   - set_type: Type of IP set to use
+##       Available values: "ipset" or "nftset"
+##       Will be ignored if type is set to "iptables" or "nftables", as those types will use associated set types
+##       Default: "ipset"
 ##
 ##   - v4: Name of the IPSet table for IPv4 addresses
 ##       Default: "PeerBlock"
@@ -154,9 +167,12 @@
 ##   - netmask_v6: Network mask for IPv6 addresses (CIDR notation)
 ##       Default: 64 (matches IPv6 network prefix)
 #
-# [ipset]
+# [firewall]
+# type = "none"
+# ipv6 = true
 # flush = true
-# v4 = "PeerBlock"
+# set_type = "ipset"
+# set_v4 = "PeerBlock"
 # netmask_v4 = 32
-# v6 = "PeerBlockv6"
+# set_v6 = "PeerBlockv6"
 # netmask_v6 = 64

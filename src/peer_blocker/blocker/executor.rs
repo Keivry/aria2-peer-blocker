@@ -1,15 +1,12 @@
-use std::{
-    collections::{HashMap, HashSet},
-    net::IpAddr,
-};
+use std::{collections::HashSet, net::IpAddr};
 
-use ipset::{Session, types::HashNet};
 use log::debug;
+use tokio::{spawn, time::interval};
 
-use super::super::{
-    Result,
-    utils::{Cidr, timestamp},
-};
+use super::super::{Firewall, FwOption, Result, utils::Cidr};
+
+/// Time interval (in seconds) for releasing expired blocked IPs
+const RELEASE_INTERVAL: u64 = 15;
 
 /// Handles the execution of IP blocking actions via Linux IPSet
 ///
@@ -18,22 +15,8 @@ use super::super::{
 /// duration has expired. It uses CIDR notation to potentially block
 /// entire subnets based on the configured netmask.
 pub struct Executor {
-    /// Name of the IPSet table to manage
-    pub ipset: String,
-
-    /// Netmask to apply when blocking IPs (allows blocking entire subnets)
-    /// For IPv4: 32 blocks a specific IP, lower values block larger subnets
-    /// For IPv6: 128 blocks a specific IP, lower values block larger subnets
-    pub netmask: u8,
-
-    /// How long (in seconds) IPs should remain blocked before being removed
-    pub duration: u32,
-
-    /// Map of currently blocked CIDRs and their block timestamp
-    pub ips: HashMap<Cidr, u64>,
-
-    /// Active IPSet session for interacting with the kernel's IPSet subsystem
-    session: Session<HashNet>,
+    /// Firewall session for managing blocked IPs
+    firewall: Firewall,
 }
 
 impl Executor {
@@ -49,21 +32,27 @@ impl Executor {
     /// # Returns
     ///
     /// A new Executor instance configured to manage the specified IPSet table
-    pub fn new(ipset: &str, netmask: u8, duration: u32, flush: bool) -> Self {
-        let mut session = Session::<HashNet>::new(ipset.to_owned());
+    pub fn new(option: &FwOption, duration: u32) -> Result<Self> {
+        let firewall = Firewall::new(option).init()?;
 
-        if flush {
-            // Clear all existing IPs on initialization
-            session.flush().ok();
-        }
+        // spawn a task to periodically release expired IPs
+        let mut interval = interval(std::time::Duration::from_secs(RELEASE_INTERVAL));
+        spawn(async move {
+            loop {
+                interval.tick().await;
+                firewall.release(duration).iter().for_each(|ip| {
+                    let set = match ip.is_ipv4() {
+                        true => firewall.set_v4(),
+                        false => firewall.set_v6(),
+                    };
+                    debug!("UPDATE IPSET [DEL] [{}] [{}].", set, ip);
+                });
+            }
+        });
 
-        Executor {
-            ipset: ipset.to_owned(),
-            netmask,
-            duration,
-            ips: HashMap::new(),
-            session,
-        }
+        Ok(Executor {
+            firewall: Firewall::new(option).init()?,
+        })
     }
 
     /// Updates the IPSet table with new blocked IPs and removes expired entries
@@ -80,28 +69,19 @@ impl Executor {
     ///
     /// * `Ok(())` if the update was successful
     /// * `Err` if there was a problem interacting with the IPSet subsystem
-    pub fn update(&mut self, ips: &HashSet<IpAddr>) -> Result<()> {
-        let now = timestamp();
-
+    pub fn update(&self, ips: &HashSet<IpAddr>) -> Result<()> {
         // Add new IPs
         ips.iter().try_for_each(|ip| {
-            let net = Cidr::new(*ip, self.netmask);
-            self.session.add(&net, &[])?;
-            self.ips.insert(net.clone(), now);
-            debug!("UPDATE IPSET [ADD] [{}] [{}].", self.ipset, net);
+            // Check if the IP is already blocked
+            let (netmask, set) = match ip {
+                IpAddr::V4(_) => (self.firewall.netmask_v4(), self.firewall.set_v4()),
+                IpAddr::V6(_) => (self.firewall.netmask_v6(), self.firewall.set_v6()),
+            };
+            let ip = Cidr::new(*ip, netmask);
+            self.firewall.block(&ip)?;
+            debug!("UPDATE IPSET [ADD] [{}] [{}].", set, ip);
             Result::Ok(())
         })?;
-
-        // Clean old IPs
-        self.ips.retain(|net, &mut timestamp| {
-            if now - timestamp > self.duration as u64 {
-                self.session.del(net).ok();
-                debug!("UPDATE IPSET [DEL] [{}] [{}].", self.ipset, net);
-                false
-            } else {
-                true
-            }
-        });
 
         Ok(())
     }

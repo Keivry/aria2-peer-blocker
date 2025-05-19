@@ -1,6 +1,7 @@
 use std::{
     fmt::{Display, Formatter, Result},
     net::IpAddr,
+    ops::Deref,
 };
 
 use chrono::Local;
@@ -20,6 +21,13 @@ impl Cidr {
     /// Creates a new CIDR with the given IP address and network mask
     /// Automatically converts the IP to the network address based on the mask
     pub fn new(ip: IpAddr, netmask: u8) -> Self { cidr(ip, netmask) }
+}
+
+impl Deref for Cidr {
+    type Target = IpAddr;
+
+    /// Deref to get the IP address portion of the CIDR
+    fn deref(&self) -> &Self::Target { &self.ip }
 }
 
 /// Implements string representation for CIDR in standard notation (e.g., "192.168.0.0/24")

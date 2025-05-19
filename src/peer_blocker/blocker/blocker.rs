@@ -21,7 +21,7 @@ use tokio::{
 use super::{
     super::{
         Result,
-        ipset::IPSetOption,
+        firewall::FwOption,
         option::BlockOption,
         rules::{BlockRule, PeerIdRule, PeerIdRuleMethod},
         utils::timestamp,
@@ -56,8 +56,8 @@ pub struct Blocker {
     /// Configuration options controlling block behavior and timing
     pub(super) option: BlockOption,
 
-    /// Configuration for ipset tables used to block peers
-    pub(super) ipset: IPSetOption,
+    /// Configuration for Linux firewall integration for blocking peers
+    pub(super) fw_option: FwOption,
 
     /// In-memory cache storing blocklist and peer behavior history
     pub(super) cache: Arc<RwLock<Cache>>,
@@ -134,34 +134,23 @@ impl Blocker {
             sleep(self.option.exception_interval).await;
         }
 
-        // Initialize IPv4 and IPv6 ipset executors
-        let mut executor_v4 = Executor::new(
-            &self.ipset.v4,
-            self.ipset.netmask_v4,
-            self.option.block_duration.as_secs() as u32,
-            self.ipset.flush,
-        );
-        let mut executor_v6 = Executor::new(
-            &self.ipset.v6,
-            self.ipset.netmask_v6,
-            self.option.block_duration.as_secs() as u32,
-            self.ipset.flush,
-        );
+        // Initialize executors
+        let executor =
+            Executor::new(&self.fw_option, self.option.block_duration.as_secs() as u32).unwrap();
 
-        // Main loop: get blocked peers and update ipset tables
+        // Main loop: get blocked peers and block them
         loop {
             match self.retry(|| self.get_blocked_peers()).await {
-                Ok((ipv4, ipv6)) => {
-                    debug!("BLOCKED IPV4 PEERS: {:?}", ipv4);
-                    debug!("BLOCKED IPV6 PEERS: {:?}", ipv6);
+                Ok(ips) => {
+                    debug!("BLOCKED PEERS: {:?}", ips);
 
                     // Update ipset tables with blocked IP addresses
-                    executor_v4
-                        .update(&ipv4)
-                        .unwrap_or_else(|_| error!("Error updating IPSet [{}]!", self.ipset.v4));
-                    executor_v6
-                        .update(&ipv6)
-                        .unwrap_or_else(|_| error!("Error updating IPSet [{}]!", self.ipset.v6));
+                    executor.update(&ips).unwrap_or_else(|_| {
+                        error!(
+                            "Error updating IPSet [{}]!",
+                            self.fw_option.set_option.set_v4
+                        );
+                    });
 
                     sleep(self.option.interval).await;
                 }
@@ -267,23 +256,18 @@ impl Blocker {
 
     /// Get the set of blocked peers for all active BitTorrent tasks,
     /// separated by IPv4 and IPv6
-    async fn get_blocked_peers(&self) -> Result<(HashSet<IpAddr>, HashSet<IpAddr>)> {
+    async fn get_blocked_peers(&self) -> Result<HashSet<IpAddr>> {
         let tasks = self.get_active_bittorrent_tasks().await?;
-        let mut ipv4 = HashSet::new();
-        let mut ipv6 = HashSet::new();
+        let mut ips = HashSet::new();
         for task in tasks {
-            self.process_task(&task, &mut ipv4, &mut ipv6).await?;
+            ips.extend(self.process_task(&task).await?);
         }
-        Ok((ipv4, ipv6))
+        Ok(ips)
     }
 
     /// Process a single BitTorrent task and update the sets of blocked peers
-    async fn process_task(
-        &self,
-        task: &TaskStatus,
-        ipv4: &mut HashSet<IpAddr>,
-        ipv6: &mut HashSet<IpAddr>,
-    ) -> Result<()> {
+    async fn process_task(&self, task: &TaskStatus) -> Result<HashSet<IpAddr>> {
+        let mut ips = HashSet::new();
         for peer in self
             .client
             .read()
@@ -293,19 +277,15 @@ impl Blocker {
             .get_peers(&task.gid)
             .await?
         {
-            self.process_peer(peer, task, ipv4, ipv6).await?;
+            if let Some(ip) = self.process_peer(peer, task).await {
+                ips.insert(ip);
+            }
         }
-        Ok(())
+        Ok(ips)
     }
 
-    /// Process a single peer and update the sets of blocked peers
-    async fn process_peer(
-        &self,
-        peer: Peer,
-        task: &TaskStatus,
-        ipv4: &mut HashSet<IpAddr>,
-        ipv6: &mut HashSet<IpAddr>,
-    ) -> Result<()> {
+    /// Process a single peer and return the IP address if it should be blocked
+    async fn process_peer(&self, peer: Peer, task: &TaskStatus) -> Option<IpAddr> {
         let ip = peer.ip.parse().unwrap();
         let peer_id = percent_decode(peer.peer_id.as_bytes())
             .decode_utf8_lossy()
@@ -315,24 +295,22 @@ impl Blocker {
             percentage: percentage(&peer.bitfield, task.num_pieces),
             bitfield: peer.bitfield,
         };
-        let timestamp = timestamp();
 
         let block_status = self
             .determine_block_status(ip, &peer_id, &peer_snapshot, task)
             .await;
 
         match block_status {
-            BlockStatus::AlreadyBlocked(_) => (),
-            BlockStatus::Unblocked => self.take_snapshot(ip, &peer_snapshot, timestamp).await,
+            BlockStatus::AlreadyBlocked(_) => None,
+            BlockStatus::Unblocked => {
+                self.take_snapshot(ip, &peer_snapshot, timestamp()).await;
+                None
+            }
             _ => {
-                match ip {
-                    IpAddr::V4(_) => ipv4.insert(ip),
-                    IpAddr::V6(_) => ipv6.insert(ip),
-                };
                 self.register_block(ip, &block_status).await;
+                Some(ip)
             }
         }
-        Ok(())
     }
 
     /// Determine the block status of a peer based on various criteria

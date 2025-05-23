@@ -5,7 +5,7 @@ mod rules;
 mod utils;
 
 pub use blocker::Blocker;
-pub use firewall::{Firewall, FwOption};
+pub use firewall::{Firewall, FwOption, FwType};
 pub use option::BlockOption;
 pub use rules::BlockRule;
 

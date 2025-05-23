@@ -22,13 +22,17 @@ hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
 ipset = "0.9.0"
 iptables = "0.5.3"
 log = "0.4.27"
-nftnl = "0.7.0"
+nftables = "0.6.2"
 parking_lot = "0.12.3"
 percent-encoding = { version = "2.3.1", default-features = false, features = [
     "alloc",
 ] }
 serde = { version = "1.0.219", default-features = false, features = ["derive"] }
-tokio = { version = "1.45.0", default-features = false, features = ["rt", "rt-multi-thread", "macros"] }
+tokio = { version = "1.45.0", default-features = false, features = [
+    "rt",
+    "rt-multi-thread",
+    "macros",
+] }
 toml = { version = "0.8.22", default-features = false, features = ["parse"] }
 
 [profile.release]

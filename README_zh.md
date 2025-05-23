@@ -85,8 +85,10 @@ sudo systemctl start aria2-peer-blocker.service
 ##### 使用 iptables
 
 ```bash
-sudo iptables -t raw -A PREROUTING -m set --match-set PeerBlock src -j DROP
-sudo ip6tables -t raw -A PREROUTING -m set --match-set PeerBlockv6 src -j DROP
+sudo iptables -t raw -A PREROUTING \
+        -m set --match-set aria2-peer-blocker-set_v4 src -j DROP
+sudo ip6tables -t raw -A PREROUTING \
+        -m set --match-set aria2-peer-blocker-set_v6 src -j DROP
 ```
 
 ## 贡献

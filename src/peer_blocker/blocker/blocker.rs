@@ -130,32 +130,33 @@ impl Blocker {
     pub async fn start(&mut self) {
         // Initialize Blocker and connection to aria2
         while let Err(e) = self.initialize().await {
-            error!("Initialization error: {:?}", e);
+            error!("Initialization error: {e:?}");
             sleep(self.option.exception_interval).await;
         }
 
         // Initialize executors
-        let executor =
-            Executor::new(&self.fw_option, self.option.block_duration.as_secs() as u32).unwrap();
+        let executor = Executor::new(&self.fw_option).unwrap();
 
         // Main loop: get blocked peers and block them
         loop {
             match self.retry(|| self.get_blocked_peers()).await {
                 Ok(ips) => {
-                    debug!("BLOCKED PEERS: {:?}", ips);
+                    debug!("BLOCKED PEERS: {ips:?}");
+
+                    // TODO: nftables support
 
                     // Update ipset tables with blocked IP addresses
                     executor.update(&ips).unwrap_or_else(|_| {
                         error!(
                             "Error updating IPSet [{}]!",
-                            self.fw_option.set_option.set_v4
+                            self.fw_option.ipset.as_ref().unwrap().set_v4
                         );
                     });
 
                     sleep(self.option.interval).await;
                 }
                 Err(e) => {
-                    warn!("Error getting blocked peers: {:?}", e);
+                    warn!("Error getting blocked peers: {e:?}");
                     sleep(self.option.exception_interval).await;
                 }
             }
@@ -193,10 +194,10 @@ impl Blocker {
 
     /// Check if the client is connected to the Aria2 RPC server
     async fn is_connected(&self) -> bool {
-        if let Some(client) = self.client.read().await.as_ref() {
-            if let Ok(Ok(_)) = timeout(self.timeout, client.get_version()).await {
-                return true;
-            }
+        if let Some(client) = self.client.read().await.as_ref()
+            && let Ok(Ok(_)) = timeout(self.timeout, client.get_version()).await
+        {
+            return true;
         }
         false
     }
@@ -223,10 +224,10 @@ impl Blocker {
                     }
                 }
                 Ok(Err(e)) => {
-                    error!("Error connecting to Aria2 RPC: {:?}", e);
+                    error!("Error connecting to Aria2 RPC: {e:?}");
                 }
                 Err(e) => {
-                    error!("Timeout connecting to Aria2 RPC: {:?}", e);
+                    error!("Timeout connecting to Aria2 RPC: {e:?}");
                 }
             }
             sleep(self.option.exception_interval).await;
@@ -492,7 +493,7 @@ impl Blocker {
                 } as u32
                     * self.option.interval.as_secs() as u32;
 
-                debug!("PEER DETAIL: [{}], COMPLETED LATENCY: [{}]", ip, latency);
+                debug!("PEER DETAIL: [{ip}], COMPLETED LATENCY: [{latency}]");
                 if latency > self.rule.max_latency_completed_to_zero {
                     return BlockStatus::BlockByCompletedLatency(latency);
                 }
@@ -520,10 +521,7 @@ impl Blocker {
                 let estimated_upload: u64 =
                     snapshots.iter().map(|peer| peer.upload_speed).sum::<u64>()
                         * self.option.interval.as_secs();
-                debug!(
-                    "PEER DETAIL: [{}], ESTIMATED UPLOAD: [{}]",
-                    ip, estimated_upload
-                );
+                debug!("PEER DETAIL: [{ip}], ESTIMATED UPLOAD: [{estimated_upload}]");
                 if estimated_upload == 0 {
                     return BlockStatus::Unblocked;
                 }
@@ -532,13 +530,13 @@ impl Blocker {
                         // Calculate the number of pieces downloaded by the peer
                         rewind_pieces(&peer.bitfield, &snapshots.front().unwrap().bitfield) as u64
                             * task.piece_length;
-                debug!("PEER DETAIL: [{}], PEER DOWNLOAD: [{}]", ip, peer_download);
+                debug!("PEER DETAIL: [{ip}], PEER DOWNLOAD: [{peer_download}]");
                 if estimated_upload <= peer_download {
                     return BlockStatus::Unblocked;
                 }
 
                 let diff = (estimated_upload - peer_download) as f64 / estimated_upload as f64;
-                debug!("PEER DETAIL: [{}], DIFFERENCE: [{}]", ip, diff);
+                debug!("PEER DETAIL: [{ip}], DIFFERENCE: [{diff}]");
 
                 if diff > self.rule.max_upload_difference {
                     return BlockStatus::BlockByUploadDifference(diff);

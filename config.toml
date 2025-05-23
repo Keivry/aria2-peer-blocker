@@ -99,7 +99,7 @@
 
 ## [option] Runtime Options Configuration
 ##
-## Defines parameters that control monitoring frequency, timing thresholds, and block duration for problematic peers.
+## Defines parameters that control monitoring frequency and timing thresholds for problematic peers.
 ##
 ## Options:
 ##   - snapshots_count: Maximum number of peer info snapshots to keep in memory for each peer
@@ -121,10 +121,6 @@
 ##   - peer_disconnect_latency: Estimated time (in seconds) for aria2 to disconnect a peer after it has been blocked
 ##       Used for avoid duplicate blocking of the same peer, peer blocked multiple times in this time will be ignored
 ##       Default: 300 (5 minutes)
-##
-##   - block_duration: Duration (in seconds) that a peer remains blocked.
-##       Once this period expires, the peer will be removed from the block list
-##       Default: 43200 (12 hours)
 #
 # [option]
 # snapshots_count = 60
@@ -132,7 +128,6 @@
 # exception_interval = 90
 # peer_snapshot_timeout = 1800
 # peer_disconnect_latency = 300
-# block_duration = 43200
 
 ## [firewall] Options for Linux firewall integration
 ##
@@ -150,29 +145,35 @@
 ##   - flush: Whether to clear the IP sets on program initialization
 ##       Default: true
 ##
-##   - set_type: Type of IP set to use
-##       Available values: "ipset" or "nftset"
-##       Will be ignored if type is set to "iptables" or "nftables", as those types will use associated set types
-##       Default: "ipset"
+##   - timeout: Time (in seconds) for which the IP set entries will be valid
+##       This is the time after which the IP entries in ipset/nftset will be removed
+##       Default: 43200 (12 hours)
 ##
-##   - v4: Name of the IPSet table for IPv4 addresses
-##       Default: "PeerBlock"
+##   - ipset: Options for ipset integration, need if type is "iptables" or "none", otherwise ignored
+##       - set_v4: Name of the IPv4 ipset to use, default is "aria2-peer-blocker-set_v4"
+##       - netmask_v4: Netmask for the IPv4 ipset, default is 32
+##       - set_v6: Name of the IPv6 ipset to use, default is "aria2-peer-blocker-set_v6"
+##       - netmask_v6: Netmask for the IPv6 ipset, default is 64
 ##
-##   - netmask_v4: Network mask for IPv4 addresses (CIDR notation)
-##       Default: 32 (exact match for single IP addresses)
+##   - nftset: Options for nftables sets integration, need if type is "nftables", otherwise ignored
+##       - set: Name of the nftset to use, default is "aria2-peer-blocker-set"
+##       - netmask_v4: Netmask for the IPv4 nftset, default is 32
+##       - netmask_v6: Netmask for the IPv6 nftset, default is 64
 ##
-##   - v6: Name of the IPSet table for IPv6 addresses
-##       Default: "PeerBlockv6"
-##
-##   - netmask_v6: Network mask for IPv6 addresses (CIDR notation)
-##       Default: 64 (matches IPv6 network prefix)
 #
 # [firewall]
 # type = "none"
 # ipv6 = true
 # flush = true
-# set_type = "ipset"
-# set_v4 = "PeerBlock"
+# timeout = 43200
+#
+# [firewall.ipset]
+# set_v4 = "aria2-peer-blocker-set_v4"
 # netmask_v4 = 32
-# set_v6 = "PeerBlockv6"
+# set_v6 = "aria2-peer-blocker-set_v6"
+# netmask_v6 = 64
+#
+# [firewall.nftset]
+# set = "aria2-peer-blocker-set"
+# netmask_v4 = 32
 # netmask_v6 = 64

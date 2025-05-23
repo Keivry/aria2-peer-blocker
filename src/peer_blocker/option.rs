@@ -34,11 +34,6 @@ pub struct BlockOption {
     /// time will be ignored
     #[serde(default = "BlockOption::default_peer_disconnect_latency")]
     pub peer_disconnect_latency: u32,
-
-    /// Duration (in seconds) that a peer remains blocked
-    /// Once this period expires, the peer will be removed from the block list
-    #[serde(default = "BlockOption::default_block_duration")]
-    pub block_duration: Duration,
 }
 
 impl BlockOption {
@@ -56,9 +51,6 @@ impl BlockOption {
 
     #[inline]
     fn default_peer_disconnect_latency() -> u32 { 300 }
-
-    #[inline]
-    fn default_block_duration() -> Duration { Duration::from_secs(43200) }
 }
 
 impl Default for BlockOption {
@@ -69,7 +61,6 @@ impl Default for BlockOption {
             exception_interval: BlockOption::default_exception_interval(),
             peer_snapshot_timeout: BlockOption::default_peer_snapshot_timeout(),
             peer_disconnect_latency: BlockOption::default_peer_disconnect_latency(),
-            block_duration: BlockOption::default_block_duration(),
         }
     }
 }

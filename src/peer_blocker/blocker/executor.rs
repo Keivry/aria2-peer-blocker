@@ -1,9 +1,9 @@
-use std::{collections::HashSet, net::IpAddr};
+use std::{collections::HashSet, net::IpAddr, time::Duration};
 
 use log::debug;
 use tokio::{spawn, time::interval};
 
-use super::super::{Firewall, FwOption, Result, utils::Cidr};
+use super::super::{Firewall, FwOption, FwType, Result, utils::Cidr};
 
 /// Time interval (in seconds) for releasing expired blocked IPs
 const RELEASE_INTERVAL: u64 = 15;
@@ -32,27 +32,37 @@ impl Executor {
     /// # Returns
     ///
     /// A new Executor instance configured to manage the specified IPSet table
-    pub fn new(option: &FwOption, duration: u32) -> Result<Self> {
-        let firewall = Firewall::new(option).init()?;
+    pub fn new(option: &FwOption) -> Result<Self> {
+        let firewall = Firewall::init(option.clone())?;
 
-        // spawn a task to periodically release expired IPs
-        let mut interval = interval(std::time::Duration::from_secs(RELEASE_INTERVAL));
-        spawn(async move {
-            loop {
-                interval.tick().await;
-                firewall.release(duration).iter().for_each(|ip| {
-                    let set = match ip.is_ipv4() {
-                        true => firewall.set_v4(),
-                        false => firewall.set_v6(),
-                    };
-                    debug!("UPDATE IPSET [DEL] [{}] [{}].", set, ip);
+        match option.fw_type {
+            FwType::Iptables | FwType::None => {
+                let firewall = firewall.clone();
+                let timeout = option.timeout;
+
+                // spawn a task to periodically release expired IPs
+                let mut interval = interval(Duration::from_secs(RELEASE_INTERVAL));
+                spawn(async move {
+                    loop {
+                        interval.tick().await;
+                        let ipset = firewall.session().ipset().unwrap();
+                        ipset.release(timeout).iter().for_each(|ip| {
+                            let set = match ip.is_ipv4() {
+                                true => ipset.v4().name(),
+                                false => ipset.v6().unwrap().name(),
+                            };
+                            debug!("UPDATE IPSET [DEL] [{set}] [{ip}].");
+                        });
+                    }
                 });
             }
-        });
+            FwType::Nftables => {
+                // Nftables does not require a separate task for releasing expired IPs
+                // as it handles this automatically based on the rules defined.
+            }
+        }
 
-        Ok(Executor {
-            firewall: Firewall::new(option).init()?,
-        })
+        Ok(Self { firewall })
     }
 
     /// Updates the IPSet table with new blocked IPs and removes expired entries
@@ -73,13 +83,13 @@ impl Executor {
         // Add new IPs
         ips.iter().try_for_each(|ip| {
             // Check if the IP is already blocked
-            let (netmask, set) = match ip {
-                IpAddr::V4(_) => (self.firewall.netmask_v4(), self.firewall.set_v4()),
-                IpAddr::V6(_) => (self.firewall.netmask_v6(), self.firewall.set_v6()),
+            let netmask = match ip {
+                IpAddr::V4(_) => self.firewall.netmask_v4(),
+                IpAddr::V6(_) => self.firewall.netmask_v6().unwrap(),
             };
             let ip = Cidr::new(*ip, netmask);
-            self.firewall.block(&ip)?;
-            debug!("UPDATE IPSET [ADD] [{}] [{}].", set, ip);
+            let set = self.firewall.block(&ip)?;
+            debug!("UPDATE IPSET [ADD] [{set}] [{ip}].");
             Result::Ok(())
         })?;
 
